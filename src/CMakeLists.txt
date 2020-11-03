@@ -6,6 +6,11 @@ find_package(Threads REQUIRED)
 find_package(FFmpeg REQUIRED)
 find_package(X11 REQUIRED)
 
+# SZ
+find_package( OpenCV REQUIRED )
+find_package (Python REQUIRED COMPONENTS Development)
+find_package (PythonLibs REQUIRED)
+
 if(WITH_ALSA)
 	find_package(ALSA REQUIRED)
 endif()
@@ -23,6 +28,8 @@ else()
 endif()
 
 set(sources
+	AV/Input/Screenshot.cpp
+	AV/Input/Screenshot.h
 	AV/Input/ALSAInput.cpp
 	AV/Input/ALSAInput.h
 	AV/Input/GLInjectInput.cpp
@@ -174,6 +181,10 @@ add_executable(simplescreenrecorder
 	${res_output}
 )
 
+#message(STATUS "Python_Development_FOUND: ${Python_Development_FOUND}")
+#message(STATUS "Python_INCLUDE_DIRS: ${Python_INCLUDE_DIRS}")
+#message(STATUS "PYTHONLIBS_FOUND: ${PYTHONLIBS_FOUND}")
+#message(STATUS "PYTHON_LIBRARIES: ${PYTHON_LIBRARIES}")
 target_include_directories(simplescreenrecorder PRIVATE
 	${FFMPEG_INCLUDE_DIRS}
 	${X11_X11_INCLUDE_PATH}
@@ -181,6 +192,7 @@ target_include_directories(simplescreenrecorder PRIVATE
 	${X11_Xfixes_INCLUDE_PATH}
 	${X11_Xi_INCLUDE_PATH}
 	${X11_Xinerama_INCLUDE_PATH}
+	${Python_INCLUDE_DIRS}
 	$<$<BOOL:${WITH_ALSA}>:${ALSA_INCLUDE_DIRS}>
 	$<$<BOOL:${WITH_PULSEAUDIO}>:${PULSEAUDIO_INCLUDE_DIRS}>
 	$<$<BOOL:${WITH_JACK}>:${JACK_INCLUDE_DIRS}>
@@ -201,6 +213,8 @@ target_link_libraries(simplescreenrecorder PRIVATE
 	${X11_Xfixes_LIB}
 	${X11_Xi_LIB}
 	${X11_Xinerama_LIB}
+	${OpenCV_LIBS}
+	${PYTHON_LIBRARIES}
 	$<$<BOOL:${WITH_ALSA}>:${ALSA_LIBRARIES}>
 	$<$<BOOL:${WITH_PULSEAUDIO}>:${PULSEAUDIO_LIBRARIES}>
 	$<$<BOOL:${WITH_JACK}>:${JACK_LIBRARIES}>
