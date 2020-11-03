@@ -72,6 +72,7 @@ along with SimpleScreenRecorder.  If not, see <http://www.gnu.org/licenses/>.
 #include <pwd.h>
 #include <strings.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <sys/shm.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -123,6 +124,27 @@ inline bool IsPlatformX11() {
 	return (d != NULL);
 }
 
+// replacement for QFontMetrics::width()
+inline int GetTextWidth(const QFontMetrics& font, const QString& str) {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 11, 0)
+	return font.horizontalAdvance(str);
+#else
+	return QFontMetrics(font).width(str);
+#endif
+}
+inline int GetTextWidth(const QFont& font, const QString& str) {
+	return GetTextWidth(QFontMetrics(font), str);
+}
+
+// replacement for QString::split() with QString::SkipEmptyParts
+inline QStringList SplitSkipEmptyParts(const QString& str, QChar sep) {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+	return str.split(sep, Qt::SkipEmptyParts);
+#else
+	return str.split(sep, QString::SkipEmptyParts);
+#endif
+}
+
 // undefine problematic Xlib macros
 #undef Bool
 
@@ -151,6 +173,11 @@ extern "C" {
 // Whether OpenGL recording should be used.
 #ifndef SSR_USE_OPENGL_RECORDING
 #error SSR_USE_OPENGL_RECORDING should be defined!
+#endif
+
+// Whether V4L2 should be used.
+#ifndef SSR_USE_V4L2
+#error SSR_USE_V4L2 should be defined!
 #endif
 
 // Whether ALSA should be used.
@@ -316,6 +343,14 @@ public:
 		return "SSRStreamException";
 	}
 };
+#if SSR_USE_V4L2
+class V4L2Exception : public std::exception {
+public:
+	inline virtual const char* what() const throw() override {
+		return "V4L2Exception";
+	}
+};
+#endif
 #if SSR_USE_ALSA
 class ALSAException : public std::exception {
 public:

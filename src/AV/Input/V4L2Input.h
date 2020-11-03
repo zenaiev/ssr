@@ -23,54 +23,40 @@ along with SimpleScreenRecorder.  If not, see <http://www.gnu.org/licenses/>.
 #include "SourceSink.h"
 #include "MutexDataPair.h"
 
-class X11Input : public QObject, public VideoSource {
-	Q_OBJECT
+#if SSR_USE_V4L2
+
+#include <libv4l2.h>
+#include <linux/videodev2.h>
+
+class V4L2Input : public VideoSource {
 
 private:
-	struct Rect {
-		unsigned int m_x1, m_y1, m_x2, m_y2;
-		inline Rect() {}
-		inline Rect(unsigned int x1, unsigned int y1, unsigned int x2, unsigned int y2) : m_x1(x1), m_y1(y1), m_x2(x2), m_y2(y2) {}
+	struct V4L2Buffer {
+		void *m_data;
+		size_t m_size;
 	};
-	struct SharedData {
-		unsigned int m_current_x, m_current_y, m_current_width, m_current_height;
-	};
-	typedef MutexDataPair<SharedData>::Lock SharedLock;
 
 private:
-	unsigned int m_x, m_y, m_width, m_height;
-	bool m_record_cursor, m_follow_cursor, m_follow_fullscreen;
+	QString m_device;
+	unsigned int m_width, m_height;
+	int m_colorspace;
+	unsigned int m_buffers;
 
 	std::atomic<uint32_t> m_frame_counter;
 	int64_t m_fps_last_timestamp;
 	uint32_t m_fps_last_counter;
 	double m_fps_current;
 
-	Display *m_x11_display;
-	int m_x11_screen;
-	Window m_x11_root;
-	Visual *m_x11_visual;
-	int m_x11_depth;
-	bool m_x11_use_shm;
-	XImage *m_x11_image;
-	XShmSegmentInfo m_x11_shm_info;
-	bool m_x11_shm_server_attached;
-
-	Rect m_screen_bbox;
-	std::vector<Rect> m_screen_rects;
-	std::vector<Rect> m_screen_dead_space;
+	int m_v4l2_device;
+	std::vector<V4L2Buffer> m_v4l2_buffers;
+	unsigned int m_v4l2_bytes_per_line;
 
 	std::thread m_thread;
-	MutexDataPair<SharedData> m_shared_data;
 	std::atomic<bool> m_should_stop, m_error_occurred;
 
 public:
-	X11Input(unsigned int x, unsigned int y, unsigned int width, unsigned int height, bool record_cursor, bool follow_cursor, bool follow_fullscreen);
-	~X11Input();
-
-	// Reads the current recording rectangle.
-	// This function is thread-safe.
-	void GetCurrentRectangle(unsigned int* x, unsigned int* y, unsigned int* width, unsigned int* height);
+	V4L2Input(const QString& device, unsigned int width, unsigned int height);
+	~V4L2Input();
 
 	// Reads the current size of the stream.
 	// This function is thread-safe.
@@ -96,7 +82,6 @@ private:
 private:
 	void InputThread();
 
-signals:
-	void CurrentRectangleChanged();
-
 };
+
+#endif

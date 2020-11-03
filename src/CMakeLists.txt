@@ -3,14 +3,19 @@
 set(CMAKE_AUTOMOC ON)
 
 find_package(Threads REQUIRED)
-find_package(FFmpeg REQUIRED)
+find_package(AVFormat REQUIRED)
+find_package(AVCodec REQUIRED)
+find_package(AVUtil REQUIRED)
+find_package(SWScale REQUIRED)
 find_package(X11 REQUIRED)
 
-# SZ
 find_package( OpenCV REQUIRED )
 find_package (Python REQUIRED COMPONENTS Development)
 find_package (PythonLibs REQUIRED)
 
+if(WITH_V4L2)
+	find_package(V4L2 REQUIRED)
+endif()
 if(WITH_ALSA)
 	find_package(ALSA REQUIRED)
 endif()
@@ -43,6 +48,8 @@ set(sources
 	AV/Input/SSRVideoStreamReader.h
 	AV/Input/SSRVideoStreamWatcher.cpp
 	AV/Input/SSRVideoStreamWatcher.h
+	AV/Input/V4L2Input.cpp
+	AV/Input/V4L2Input.h
 	AV/Input/X11Input.cpp
 	AV/Input/X11Input.h
 	AV/Output/AudioEncoder.cpp
@@ -186,13 +193,17 @@ add_executable(simplescreenrecorder
 #message(STATUS "PYTHONLIBS_FOUND: ${PYTHONLIBS_FOUND}")
 #message(STATUS "PYTHON_LIBRARIES: ${PYTHON_LIBRARIES}")
 target_include_directories(simplescreenrecorder PRIVATE
-	${FFMPEG_INCLUDE_DIRS}
+	${AVFORMAT_INCLUDE_DIRS}
+	${AVCODEC_INCLUDE_DIRS}
+	${AVUTIL_INCLUDE_DIRS}
+	${SWSCALE_INCLUDE_DIRS}
 	${X11_X11_INCLUDE_PATH}
 	${X11_Xext_INCLUDE_PATH}
 	${X11_Xfixes_INCLUDE_PATH}
 	${X11_Xi_INCLUDE_PATH}
 	${X11_Xinerama_INCLUDE_PATH}
 	${Python_INCLUDE_DIRS}
+	$<$<BOOL:${WITH_V4L2}>:${V4L2_INCLUDE_DIRS}>
 	$<$<BOOL:${WITH_ALSA}>:${ALSA_INCLUDE_DIRS}>
 	$<$<BOOL:${WITH_PULSEAUDIO}>:${PULSEAUDIO_INCLUDE_DIRS}>
 	$<$<BOOL:${WITH_JACK}>:${JACK_INCLUDE_DIRS}>
@@ -205,7 +216,10 @@ target_include_directories(simplescreenrecorder PRIVATE
 )
 
 target_link_libraries(simplescreenrecorder PRIVATE
-	${FFMPEG_LIBRARIES}
+	${AVFORMAT_LIBRARIES}
+	${AVCODEC_LIBRARIES}
+	${AVUTIL_LIBRARIES}
+	${SWSCALE_LIBRARIES}
 	${QT_LIBS}
 	${CMAKE_THREAD_LIBS_INIT}
 	${X11_X11_LIB}
@@ -215,6 +229,7 @@ target_link_libraries(simplescreenrecorder PRIVATE
 	${X11_Xinerama_LIB}
 	${OpenCV_LIBS}
 	${PYTHON_LIBRARIES}
+	$<$<BOOL:${WITH_V4L2}>:${V4L2_LIBRARIES}>
 	$<$<BOOL:${WITH_ALSA}>:${ALSA_LIBRARIES}>
 	$<$<BOOL:${WITH_PULSEAUDIO}>:${PULSEAUDIO_LIBRARIES}>
 	$<$<BOOL:${WITH_JACK}>:${JACK_LIBRARIES}>
@@ -224,6 +239,7 @@ target_compile_definitions(simplescreenrecorder PRIVATE
 	-DSSR_USE_X86_ASM=$<BOOL:${ENABLE_X86_ASM}>
 	-DSSR_USE_FFMPEG_VERSIONS=$<BOOL:${ENABLE_FFMPEG_VERSIONS}>
 	-DSSR_USE_OPENGL_RECORDING=$<BOOL:${WITH_OPENGL_RECORDING}>
+	-DSSR_USE_V4L2=$<BOOL:${WITH_V4L2}>
 	-DSSR_USE_ALSA=$<BOOL:${WITH_ALSA}>
 	-DSSR_USE_PULSEAUDIO=$<BOOL:${WITH_PULSEAUDIO}>
 	-DSSR_USE_JACK=$<BOOL:${WITH_JACK}>

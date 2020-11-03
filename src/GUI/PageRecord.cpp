@@ -35,7 +35,12 @@ along with SimpleScreenRecorder.  If not, see <http://www.gnu.org/licenses/>.
 #include "AudioEncoder.h"
 #include "Synchronizer.h"
 #include "X11Input.h"
+#if SSR_USE_OPENGL_RECORDING
 #include "GLInjectInput.h"
+#endif
+#if SSR_USE_V4L2
+#include "V4L2Input.h"
+#endif
 #if SSR_USE_ALSA
 #include "ALSAInput.h"
 #endif
@@ -56,20 +61,27 @@ static QString GetNewSegmentFile(const QString& file, bool add_timestamp) {
 	unsigned int counter = 0;
 	do {
 		++counter;
-		newfile = fi.path() + "/" + fi.completeBaseName();
-		if(add_timestamp)
-			newfile += "-" + now.toString("yyyy-MM-dd_hh.mm.ss");
-		if(counter != 1)
-			newfile += "-(" + QString::number(counter) + ")";
+		newfile = fi.completeBaseName();
+		if(add_timestamp) {
+			if(!newfile.isEmpty())
+				newfile += "-";
+			newfile += now.toString("yyyy-MM-dd_hh.mm.ss");
+		}
+		if(counter != 1) {
+			if(!newfile.isEmpty())
+				newfile += "-";
+			newfile += "(" + QString::number(counter) + ")";
+		}
 		if(!fi.suffix().isEmpty())
 			newfile += "." + fi.suffix();
+		newfile = fi.path() + "/" + newfile;
 	} while(QFileInfo(newfile).exists());
 	return newfile;
 }
 
 static std::vector<std::pair<QString, QString> > GetOptionsFromString(const QString& str) {
 	std::vector<std::pair<QString, QString> > options;
-	QStringList optionlist = str.split(',', QString::SkipEmptyParts);
+	QStringList optionlist = SplitSkipEmptyParts(str, ',');
 	for(int i = 0; i < optionlist.size(); ++i) {
 		QString a = optionlist[i];
 		int p = a.indexOf('=');
@@ -256,6 +268,10 @@ PageRecord::PageRecord(MainWindow* main_window)
 				m_label_info_file_size = new QLabel(groupbox_information);
 				QLabel *label_bit_rate = new QLabel(tr("Bit rate:"), groupbox_information);
 				m_label_info_bit_rate = new QLabel(groupbox_information);
+				m_checkbox_show_recording_area = new QCheckBox(tr("Show recording area"), groupbox_information);
+				m_checkbox_show_recording_area->setToolTip(tr("When enabled, the recorded area is marked on the screen."));
+
+				connect(m_checkbox_show_recording_area, SIGNAL(clicked()), this, SLOT(OnUpdateRecordingFrame()));
 
 				QGridLayout *layout = new QGridLayout(groupbox_information);
 				layout->addWidget(label_total_time, 0, 0);
@@ -274,6 +290,7 @@ PageRecord::PageRecord(MainWindow* main_window)
 				layout->addWidget(m_label_info_file_size, 6, 1);
 				layout->addWidget(label_bit_rate, 7, 0);
 				layout->addWidget(m_label_info_bit_rate, 7, 1);
+				layout->addWidget(m_checkbox_show_recording_area, 9, 0, 1, 2);
 				layout->setColumnStretch(1, 1);
 				layout->setRowStretch(8, 1);
 			}
@@ -401,6 +418,7 @@ PageRecord::PageRecord(MainWindow* main_window)
 	UpdateRecordButton();
 	UpdateSchedule();
 	UpdatePreview();
+	OnUpdateRecordingFrame();
 
 	if(m_systray_icon != NULL)
 		m_systray_icon->show();
@@ -442,6 +460,7 @@ void PageRecord::LoadSettings(QSettings *settings) {
 #if SSR_USE_ALSA
 	SetSoundNotificationsEnabled(settings->value("record/sound_notifications_enable", false).toBool());
 #endif
+	SetShowRecordingArea(settings->value("record/show_recording_area", false).toBool());
 	SetPreviewFrameRate(settings->value("record/preview_frame_rate", 10).toUInt());
 	SetScheduleTimeZone(StringToEnum(settings->value("record/schedule_time_zone", QString()).toString(), SCHEDULE_TIME_ZONE_LOCAL));
 	unsigned int num_entries = clamp(settings->value("record/schedule_num_entries", 0).toUInt(), 0u, 1000u);
@@ -459,6 +478,7 @@ void PageRecord::LoadSettings(QSettings *settings) {
 #if SSR_USE_ALSA
 	OnUpdateSoundNotifications();
 #endif
+	OnUpdateRecordingFrame();
 }
 
 void PageRecord::SaveSettings(QSettings *settings) {
@@ -471,6 +491,7 @@ void PageRecord::SaveSettings(QSettings *settings) {
 #if SSR_USE_ALSA
 	settings->setValue("record/sound_notifications_enable", AreSoundNotificationsEnabled());
 #endif
+	settings->setValue("record/show_recording_area", GetShowRecordingArea());
 	settings->setValue("record/preview_frame_rate", GetPreviewFrameRate());
 	settings->setValue("record/schedule_time_zone", EnumToString(GetScheduleTimeZone()));
 	settings->setValue("record/schedule_num_entries", (unsigned int) m_schedule_entries.size());
@@ -516,6 +537,9 @@ void PageRecord::StartPage() {
 	// get the video input settings
 	m_video_area = page_input->GetVideoArea();
 	m_video_area_follow_fullscreen = page_input->GetVideoAreaFollowFullscreen();
+#if SSR_USE_V4L2
+	m_v4l2_device = page_input->GetVideoV4L2Device();
+#endif
 	m_video_x = page_input->GetVideoX();
 	m_video_y = page_input->GetVideoY();
 #if SSR_USE_OPENGL_RECORDING
@@ -626,6 +650,9 @@ void PageRecord::StartPage() {
 		default: break; // to keep GCC happy
 	}
 
+	// only show the recording frame option when using a fixed rectangle
+	GroupVisible({m_checkbox_show_recording_area}, (m_video_area == PageInput::VIDEO_AREA_FIXED));
+
 	// hide the audio previewer if there is no audio
 	GroupVisible({m_label_mic_icon, m_audio_previewer}, m_audio_enabled);
 
@@ -673,6 +700,7 @@ void PageRecord::StartPage() {
 #endif
 
 	UpdateInput();
+	OnUpdateRecordingFrame();
 
 	OnUpdateInformation();
 	m_timer_update_info->start(1000);
@@ -727,6 +755,7 @@ void PageRecord::StopPage(bool save) {
 #if SSR_USE_ALSA
 	OnUpdateSoundNotifications();
 #endif
+	OnUpdateRecordingFrame();
 
 	m_timer_update_info->stop();
 	OnUpdateInformation();
@@ -814,6 +843,7 @@ void PageRecord::StartOutput() {
 		UpdateSysTray();
 		UpdateRecordButton();
 		UpdateInput();
+		OnUpdateRecordingFrame();
 
 	} catch(...) {
 		Logger::LogError("[PageRecord::StartOutput] " + tr("Error: Something went wrong during initialization."));
@@ -857,6 +887,7 @@ void PageRecord::StopOutput(bool final) {
 	UpdateSysTray();
 	UpdateRecordButton();
 	UpdateInput();
+	OnUpdateRecordingFrame();
 
 }
 
@@ -879,6 +910,11 @@ void PageRecord::StartInput() {
 		Logger::LogInfo("[PageRecord::StartInput] " + tr("Starting input ..."));
 
 		// start the video input
+		if(m_video_area == PageInput::VIDEO_AREA_SCREEN || m_video_area == PageInput::VIDEO_AREA_FIXED || m_video_area == PageInput::VIDEO_AREA_CURSOR) {
+			m_x11_input.reset(new X11Input(m_video_x, m_video_y, m_video_in_width, m_video_in_height, m_video_record_cursor,
+										   m_video_area == PageInput::VIDEO_AREA_CURSOR, m_video_area_follow_fullscreen));
+			connect(m_x11_input.get(), SIGNAL(CurrentRectangleChanged()), this, SLOT(OnUpdateRecordingFrame()), Qt::QueuedConnection);
+		}
 #if SSR_USE_OPENGL_RECORDING
 		if(m_video_area == PageInput::VIDEO_AREA_GLINJECT) {
 			if(m_gl_inject_input == NULL) {
@@ -886,13 +922,14 @@ void PageRecord::StartInput() {
 				throw GLInjectException();
 			}
 			m_gl_inject_input->SetCapturing(true);
-		} else {
-#else
-		{
-#endif
-			m_x11_input.reset(new X11Input(m_video_x, m_video_y, m_video_in_width, m_video_in_height, m_video_record_cursor,
-										   m_video_area == PageInput::VIDEO_AREA_CURSOR, m_video_area_follow_fullscreen));
 		}
+#endif
+#if SSR_USE_V4L2
+		if(m_video_area == PageInput::VIDEO_AREA_V4L2) {
+			m_v4l2_input.reset(new V4L2Input(m_v4l2_device, m_video_in_width, m_video_in_height));
+			m_v4l2_input->GetCurrentSize(&m_video_in_width, &m_video_in_height);
+		}
+#endif
 
 		// start the audio input
 		if(m_audio_enabled) {
@@ -918,6 +955,9 @@ void PageRecord::StartInput() {
 		if(m_gl_inject_input != NULL)
 			m_gl_inject_input->SetCapturing(false);
 #endif
+#if SSR_USE_V4L2
+		m_v4l2_input.reset();
+#endif
 #if SSR_USE_ALSA
 		m_alsa_input.reset();
 #endif
@@ -942,6 +982,9 @@ void PageRecord::StopInput() {
 #if SSR_USE_OPENGL_RECORDING
 	if(m_gl_inject_input != NULL)
 		m_gl_inject_input->SetCapturing(false);
+#endif
+#if SSR_USE_V4L2
+	m_v4l2_input.reset();
 #endif
 #if SSR_USE_ALSA
 	m_alsa_input.reset();
@@ -999,15 +1042,16 @@ void PageRecord::UpdateInput() {
 	// get sources
 	VideoSource *video_source = NULL;
 	AudioSource *audio_source = NULL;
-#if SSR_USE_OPENGL_RECORDING
-	if(m_video_area == PageInput::VIDEO_AREA_GLINJECT) {
-		video_source = m_gl_inject_input.get();
-	} else {
-#else
-	{
-#endif
+	if(m_video_area == PageInput::VIDEO_AREA_SCREEN || m_video_area == PageInput::VIDEO_AREA_FIXED|| m_video_area == PageInput::VIDEO_AREA_CURSOR)
 		video_source = m_x11_input.get();
-	}
+#if SSR_USE_OPENGL_RECORDING
+	if(m_video_area == PageInput::VIDEO_AREA_GLINJECT)
+		video_source = m_gl_inject_input.get();
+#endif
+#if SSR_USE_V4L2
+	if(m_video_area == PageInput::VIDEO_AREA_V4L2)
+		video_source = m_v4l2_input.get();
+#endif
 	if(m_audio_enabled) {
 #if SSR_USE_ALSA
 		if(m_audio_backend == PageInput::AUDIO_BACKEND_ALSA)
@@ -1153,6 +1197,22 @@ void PageRecord::OnUpdateSoundNotifications() {
 }
 #endif
 
+void PageRecord::OnUpdateRecordingFrame() {
+	if(m_page_started && m_video_area == PageInput::VIDEO_AREA_FIXED && GetShowRecordingArea()) {
+		if(m_recording_frame == NULL)
+			m_recording_frame.reset(new RecordingFrameWindow(this, true));
+		if(m_x11_input == NULL) {
+			m_recording_frame->SetRectangle(QRect(m_video_x, m_video_y, m_video_in_width, m_video_in_height));
+		} else {
+			unsigned int x, y, width, height;
+			m_x11_input->GetCurrentRectangle(&x, &y, &width, &height);
+			m_recording_frame->SetRectangle(QRect(x, y, width, height));
+		}
+	} else {
+		m_recording_frame.reset();
+	}
+}
+
 void PageRecord::OnRecordStart() {
 	if(m_main_window->IsBusy())
 		return;
@@ -1284,7 +1344,6 @@ void PageRecord::OnScheduleActivateDeactivate() {
 }
 
 void PageRecord::OnScheduleEdit() {
-	OnScheduleDeactivate();
 	DialogRecordSchedule dialog(this);
 	dialog.exec();
 	UpdateSchedule();
@@ -1302,6 +1361,7 @@ void PageRecord::OnPreviewStartStop() {
 	}
 	UpdatePreview();
 	UpdateInput();
+	OnUpdateRecordingFrame();
 }
 
 void PageRecord::OnStdin() {
@@ -1384,12 +1444,16 @@ void PageRecord::OnUpdateInformation() {
 		double fps_out = 0.0;
 		uint64_t bit_rate = 0, total_bytes = 0;
 
+		if(m_x11_input != NULL)
+			fps_in = m_x11_input->GetFPS();
 #if SSR_USE_OPENGL_RECORDING
 		if(m_gl_inject_input != NULL)
 			fps_in = m_gl_inject_input->GetFPS();
 #endif
-		if(m_x11_input != NULL)
-			fps_in = m_x11_input->GetFPS();
+#if SSR_USE_V4L2
+		if(m_v4l2_input != NULL)
+			fps_in = m_v4l2_input->GetFPS();
+#endif
 
 		if(m_output_manager != NULL) {
 			total_time = (m_output_manager->GetSynchronizer() == NULL)? 0 : m_output_manager->GetSynchronizer()->GetTotalTime();
