@@ -69,7 +69,10 @@ int Screenshot::to_python(unsigned int h, unsigned int w, cv::Mat& mat1, int64_t
   //printf("dupa\n");
 
   // Required for the C-API : http://docs.scipy.org/doc/numpy/reference/c-api.array.html#importing-the-api
-  import_array ();
+  static int ncall = 0;
+  ncall++;
+  if(ncall == 1)
+    import_array ();
 
   py_array = PyArray_SimpleNewFromData(2, dims, NPY_FLOAT, p);
 
