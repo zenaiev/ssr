@@ -29,6 +29,8 @@ You should have received a copy of the GNU General Public License
 along with SimpleScreenRecorder.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <opencv2/opencv.hpp>
+
 #include "X11Input.h"
 
 #include "Logger.h"
@@ -37,6 +39,8 @@ along with SimpleScreenRecorder.  If not, see <http://www.gnu.org/licenses/>.
 #include "VideoEncoder.h"
 
 #include "VideoPreviewer.h"
+
+#include "Screenshot.h"
 
 /*
 The code in this file is based on the MIT-SHM example code and the x11grab device in libav/ffmpeg (which is GPL):
@@ -549,6 +553,17 @@ void X11Input::InputThread() {
 			PushVideoFrame(grab_width, grab_height, image_data, image_stride, x11_image_format, timestamp);
 			last_timestamp = timestamp;
 
+			// save screenshot
+			/*static int nframe = 0;
+			nframe++;
+			const char* path = "/home/zenaiev/games/Diablo2/502/screens/";
+			//int ret = this->save_frame_as_jpeg(GetCodecContext(), packet->GetPacket(), nframe, path);
+			cv::Mat img = cv::Mat(grab_height, grab_width, CV_8UC4, image_data);
+			char fname[256];
+			sprintf(fname, "%s/%06d.png", path, nframe);
+			cv::imwrite(fname, img);
+			printf("SZ pushed image = %p\n", image_data);*/
+			Screenshot::do_screenshot(grab_height, grab_width, image_data, timestamp);
 		}
 
 		Logger::LogInfo("[X11Input::InputThread] " + Logger::tr("Input thread stopped."));
