@@ -29,7 +29,7 @@ You should have received a copy of the GNU General Public License
 along with SimpleScreenRecorder.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <opencv2/opencv.hpp>
+//#include <opencv2/opencv.hpp>
 
 #include "X11Input.h"
 
@@ -578,7 +578,7 @@ void X11Input::InputThread() {
 			sprintf(fname, "%s/%06d.png", path, nframe);
 			cv::imwrite(fname, img);
 			printf("SZ pushed image = %p\n", image_data);*/
-			Screenshot::do_screenshot(grab_height, grab_width, image_data, timestamp);
+			Screenshot::check_screenshot(grab_height, grab_width, image_data, timestamp);
 		}
 
 		Logger::LogInfo("[X11Input::InputThread] " + Logger::tr("Input thread stopped."));

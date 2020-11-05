@@ -1,3 +1,4 @@
+python3 convert-d2-items.py d2-items-input.txt d2-drop-words.txt d2-drop-items.txt
 mkdir build-my
 cd build-my
 ln -s ../pycode.py ./

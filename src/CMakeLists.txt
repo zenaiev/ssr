@@ -10,8 +10,8 @@ find_package(SWScale REQUIRED)
 find_package(X11 REQUIRED)
 
 find_package( OpenCV REQUIRED )
-find_package (Python REQUIRED COMPONENTS Development)
-find_package (PythonLibs REQUIRED)
+find_package (Python 3.6 REQUIRED COMPONENTS Development)
+find_package (PythonLibs 3.6 REQUIRED)
 
 if(WITH_V4L2)
 	find_package(V4L2 REQUIRED)
