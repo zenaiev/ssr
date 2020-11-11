@@ -9,6 +9,8 @@ import math
 import pytesseract
 import sys
 import os
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 
 class Drop:
     def __init__(self):
@@ -28,14 +30,14 @@ class Drop:
       img = 255 * img # Now scale by 255
       img = img.astype(np.uint8)
 
-    def process_drop(self, img, start_y=0):
+    def process_drop(self, img, start_y=0, signal_x={}):
         #img = self._preprocess_img(img)
         #self._preprocess_img(img)
         img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         img_gray = np.int16(img_gray)
         #img_gray = np.int8(img_gray)
        #img_gray = img_gray.astype('float')
-        ret = self._edge_b_t(img_gray, start_y=start_y)
+        ret = self._edge_b_t(img_gray, start_y=start_y, signal_x=signal_x)
         ys, ls, rs, img_sum, img_rms, img_final = ret
         #img_rms = np.uint8(img_rms)
         #print(img_sum)
@@ -68,12 +70,13 @@ class Drop:
           cv2.imshow('img_with_edge', img_with_edge)
           cv2.imwrite('img_with_edge.png', img_with_edge)
         for y,l,r in zip(ys,ls,rs):
-          if l > r:
-            l,r = r,l
+          #if l > r:
+          #  l,r = r,l
           print(y,l,r)
           #cv2.line(img, (0, y), (img.shape[1], y), (0, 255, 0), 1)
-          cv2.rectangle(img, (l, y), (r, y+16), (0, 255, 0), 1)
+          cv2.rectangle(img, (l, y-1), (r, y+16), (0, 255, 0), 1)
         cv2.imshow('output', img)
+        cv2.imwrite('output.png', img)
         cv2.waitKey(0)
         return ''
         a
@@ -107,7 +110,7 @@ class Drop:
         self.current_drop = old_drop + new_drop
         return self.current_drop
     
-    def _edge_b_t(self, img, start_y = 0, signal = [222, 237, 252, 267, 282, 300]):
+    def _edge_b_t(self, img, start_y = 0, signal = [222, 237, 252, 267, 282, 300], signal_x = {}):
       np.set_printoptions(threshold=np.inf, linewidth=np.inf)
       print_size = 30
       line_size_erode = 0
@@ -183,18 +186,50 @@ class Drop:
         ys.remove(141)
         ys.remove(142)
       ls, rs = [], []
+      #print("img:\n{}".format(img))
+      drop = []
       for y in ys:
-        l, r = [], []
-        for x in range(4, img.shape[0]-1-4):
-          l.append(np.sum(img[y-16:y, x]) - np.sum(img[y-16:y, x+1]))
-          r.append(np.sum(img[y-16:y, x+1]) - np.sum(img[y-16:y, x]))
-        l_max = max(l)
-        l_max_index = l.index(l_max)
+        print('y = {}'.format(y))
+        l, r = [0]*img.shape[1], [0]*img.shape[1]
+        l_rms, r_rms = [0]*img.shape[1], [0]*img.shape[1]
+        l_rms_p, r_rms_p = [0]*img.shape[1], [0]*img.shape[1]
+        l_best, r_best = [0]*img.shape[1], [0]*img.shape[1]
+        for x in range(4, img.shape[1]-4):
+          l[x], l_rms[x], l_rms_p[x] = self._calc_h_edge(img, y, x, 'l')
+          r[x], r_rms[x], r_rms_p[x] = self._calc_h_edge(img, y, x, 'r')
+          if l_rms[x] != 0:
+            l_best[x] = l[x] / l_rms[x] * 10
+          if r_rms[x] != 0:
+            r_best[x] = r[x] / r_rms[x] * 10
+          #l.append(np.sum(img[y+1:y+16+1, x]) - np.sum(img[y:y+16+1, x+1]))
+          #r.append(np.sum(img[y+1:y+16+1, x+1]) - np.sum(img[y:y+16+1, x]))
+        fig, (ax1, ax2) = plt.subplots(2, 1, sharex='col')
+        fig.subplots_adjust(hspace = 0.0, left = 0.06, right = 0.97)
+        #plt.figure('l')
+        ax1.plot(range(img.shape[1]), l)
+        ax1.plot(range(img.shape[1]), l_rms)
+        ax1.plot(range(img.shape[1]), l_rms_p)
+        ax1.plot(range(img.shape[1]), l_best)
+        #plt.figure('r')
+        ax2.plot(range(img.shape[1]), r)
+        ax2.plot(range(img.shape[1]), r_rms)
+        ax2.plot(range(img.shape[1]), r_rms_p)
+        ax2.xaxis.set_major_locator(ticker.MultipleLocator(10))
+        ax2.plot(range(img.shape[1]), r_best)
+        #print(ax2.get_ylim())
+        if y in signal_x:
+          ax1.vlines(signal_x[y][0], *ax1.get_ylim(), colors='b')
+          ax2.vlines(signal_x[y][1], *ax2.get_ylim(), colors='b')
+        #plt.show()
+        #cv2.waitKey()
+        l_max = max(l_best)
+        l_max_index = l_best.index(l_max)
         ls.append(l_max_index)
-        r_max = max(r)
-        r_max_index = r.index(r_max)
+        r_max = max(r_best)
+        r_max_index = r_best.index(r_max)
         rs.append(r_max_index)
         print('y = {} l = {}[{}] r = {}[{}]'.format(y, l_max, l_max_index, r_max, r_max_index))
+        drop.append(self._box(img[y:y+16+1, l_max_index+1:r_max_index], self.img_orig[y:y+16+1, l_max_index+1:r_max_index]))
         #print(l)
         #print(r)
         #img_edge_l = cv2.filter2D(img[y:y+16+1, :-1], -1, np.matrix('0 0' + ';1 -1'*16)
@@ -235,130 +270,76 @@ class Drop:
       #a
       #line = np.matrix('1 '*line_size_erode)
     
+    def _calc_h_edge(self, img, y, x, mode):
+      if mode == 'l':
+        xp, xm = x, x+1
+      elif mode == 'r':
+        xp, xm = x, x-1
+      diff = [p - m for p,m in zip(img[y:y+16, xp].tolist(), img[y:y+16, xm].tolist())]
+      #print(diff)
+      mean = sum(diff) / len(diff)
+      rms = math.sqrt(sum((d-mean)**2 for d in diff) / len(diff))
+      xp_list = img[y+1:y+1+16, xp].tolist()
+      mean_p = sum(xp_list) / len(xp_list)
+      rms_p = math.sqrt(sum((d-mean_p)**2 for d in xp_list) / len(xp_list))
+      return mean, rms, rms_p
+
     def _set_y_to_zero(self, img, y, start_y, x, min_val):
       if img.shape[0] < y:
         return
       if len(np.where(img[y-start_y, :x] == min_val)[0]) > 0 and len(np.where(img[y-start_y, x:] == min_val)[0]) == 0:
         #print('removing')
         img[y-start_y, :] = 0
-
-    def _edge_new(self, img, mode, print_size = 18, line_size_erode = 4, line_size_sum = 25, av_grad = 10, debug=0):
-      np.set_printoptions(threshold=np.inf, linewidth=np.inf)
-      max_pix = np.iinfo(img.dtype).max
-      if debug:
-        print('input shape: {}'.format(img.shape))
-        print('input\n', img[:, :print_size])
-      if mode == 'b':
-        kernel = np.matrix('-1; 1')
-      elif mode == 't':
-        kernel = np.matrix('1; -1')
-      img_edge = cv2.filter2D(img, -1, kernel)
-      #cv2.imshow('tmp', img_edge)
-      #cv2.waitKey()
-      #a
-      if debug:
-        print('der {}\n'.format(mode), img_edge[:, :print_size])
-      if line_size_erode > 0:
-        img_edge = cv2.erode(img_edge, np.matrix('1 '*line_size_erode))
-        if debug:
-          print('der {} erode\n'.format(mode), img_edge[:, :print_size])
-      img_edge = cv2.filter2D(img_edge, -1, np.matrix('1 '*line_size_sum))
-      if debug:
-        print('der {} sum\n'.format(mode), img_edge[:, :print_size])
-      img_edge = cv2.inRange(img_edge, min(line_size_sum*av_grad, max_pix), max_pix)
-      if debug:
-        print('der {} threshold\n'.format(mode), img_edge[:, :print_size])
-      return img_edge
-
-    def _edgefill(self, img, mode):
-        if mode == 'l':
-          kernel = np.matrix('1 -1')
-          line_size = 3
-          line = np.matrix(';'.join('1'*line_size))
-        elif mode == 'r':
-          kernel = np.matrix('-1 1')
-          line_size = 3
-          line = np.matrix(';'.join('1'*line_size))
-        elif mode == 'b':
-          kernel = np.matrix('-1; 1')
-          line_size = 35
-          line = np.matrix('1 '*line_size)
-        elif mode == 't':
-          kernel = np.matrix('1; -1')
-          line_size = 35
-          line = np.matrix('1 '*line_size)
-        kernel = np.matrix('1;' + ';'.join('0'*14) + ';1')
-        #print(kernel)
-        img1 = cv2.filter2D(img, -1, kernel)
-        print(img1.shape)
-        cv2.imwrite('conv_fill.png', img1)
-        return img1
-
-    def _edge(self, img, mode):
-        #vert = cv.getStructuringElement(cv.MORPH_RECT, (1, 7))
-        if mode == 'l':
-          line_size = 3
-          kernel = np.matrix('1 -1')
-          line = np.matrix(';'.join('1'*line_size))
-        elif mode == 'r':
-          line_size = 3
-          kernel = np.matrix('-1 1')
-          line = np.matrix(';'.join('1'*line_size))
-        elif mode == 'b':
-          line_size = 6
-          kernel = np.matrix('-1; 1')
-          line = np.matrix('1 '*line_size)
-        elif mode == 't':
-          line_size = 6
-          kernel = np.matrix('1; -1')
-          line = np.matrix('1 '*line_size)
-        #print(kernel)
-        img1 = cv2.filter2D(img, -1, kernel)
-        print(img1.shape)
-        #cv2.imwrite('conv1.png', img1)
-        #img1 = cv2.inRange(img1, 38, 114)
-        img1 = cv2.inRange(img1, 30, 120)
-        img1 = img1 / line_size
-        img1 = cv2.filter2D(img1, -1, line)
-        #print(img1)
-        img1 = cv2.inRange(img1, 255, 255)
-        #img1 = cv2.bitwise_and(img1, img1, mask=mask1)
-        #cv2.imshow('conv_'+mode, img1)
-        #cv2.waitKey(0)
-        #a
-        return img1
     
-    def _threshold(self, img):
-        img = imutils.resize(img, img.shape[1] * 5)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        cv2.imshow('gray', img)
-        #return img
-        #img = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-        #img = cv2.adaptiveThreshold(img, 255,cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY,11,2)
-        img = cv2.adaptiveThreshold(img, 255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY,11,2)
-        #_,img = cv2.threshold(img, 1, 255, cv2.THRESH_BINARY)
-        #cv2.imshow('threshold0', img)
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 1))
-        #img = cv2.dilate(img,kernel,iterations = 1)
-        img = cv2.morphologyEx(img, cv2.MORPH_CLOSE, kernel)
-        img = cv2.bitwise_not(img)
-        cv2.imshow('threshold', img)
-        cv2.waitKey(0)
-        return img
-
-    def _preprocess_img(self, img):
-        pass
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        gradY = cv2.Sobel(img, ddepth=cv2.CV_32F, dx=0, dy=1, ksize=5)
-        gradY = np.absolute(gradY)
-        (minVal, maxVal) = (np.min(gradY), np.max(gradY))
-        gradY = 255 * ((gradY - minVal) / (maxVal - minVal))
-        gradY = gradY.astype("uint8")
-        cv2.imshow("Preprocessed", img)
-        cv2.imshow("GradY", gradY)
-        cv2.waitKey(0)
-        a
-        return img
+    def _box(self, img_orig, img_col):
+      img = np.uint8(img_orig)
+      #print(img.shape)
+      #print(img)
+      ret,th = cv2.threshold(img,0,255,cv2.THRESH_BINARY_INV+cv2.THRESH_OTSU)
+      if th is None:
+        return {}
+      print('thresholding: ret = {}, th.shape = {}'.format(ret, th.shape))
+      cv2.imshow('th', th)
+      img_col_th = cv2.bitwise_and(img_col, img_col, mask=cv2.bitwise_not(th))
+      cv2.imshow('th_col', img_col_th)
+      mean_col = cv2.mean(img_col, mask=cv2.bitwise_not(th))[0:3]
+      img_1 = np.zeros((1, 1, 3), dtype='uint8')
+      img_1[0, 0] = mean_col
+      #print('mean_col: {}'.format(mean_col))
+      #print(np.matrix(mean_col))
+      hsv = cv2.cvtColor(img_1, cv2.COLOR_BGR2HSV)
+      print('mean_col: {} hsv: {}'.format(mean_col, hsv))
+      #hue_c = {'g': 45, 'y': 60, 'g': 120, 'b': 240}
+      hue = hsv[0, 0, 0] * 2
+      if all(c > 150 for c in mean_col):
+        drop_color = 'w'
+      elif hue < 42: # 40
+        drop_color = 'o'
+      elif hue < 53: # 45
+        drop_color = 'u'
+      elif hue < 70: # 60
+        drop_color = 'y'
+      elif hue < 150: # 120
+        drop_color = 'g'
+      else: # 240
+        drop_color = 'b'
+      th = th[1:-4, 4:-4]
+      th = cv2.resize(th, (th.shape[1]*4, th.shape[0]*4))
+      cv2.imshow('col', img_col)
+      #print(img_col.shape, th.shape, cv2.bitwise_not(th).shape)
+      #cv2.waitKey()
+      bsize = 5
+      th_with_edge = cv2.copyMakeBorder(th, top=bsize, bottom=bsize, left=bsize, right=bsize, borderType=cv2.BORDER_CONSTANT, value=255)
+      #th_with_edge = th
+      #th_with_edge = 255*np.ones((th.shape[0] + 4, th.shape[1] + 4))
+      #th_with_edge[2:-2, 2:-2] = th
+      #th = th_with_edge
+      #print(th)
+      #print(ret)
+      drop = self._run_tesseract(th_with_edge)
+      print('drop: {} [{}]'.format(drop, drop_color))
+      #cv2.waitKey()
+      return {'drop': drop, 'drop_color': drop_color}
 
     def _get_drop_from_img(self, img):
         #ret = []
@@ -369,148 +350,52 @@ class Drop:
         return [self.items[random.randrange(len(self.items))] for i in range(random.randrange(1, 5))]
     
     def _run_tesseract(self, image):
-        res = pytesseract.image_to_data(image, config=self.config_tesseract+' --psm 7')
-        conf, text = res.splitlines()[-1].split()[-2:]
-        print('detected[{}]: {}'.format(conf, text))
-        return text
-
-    def _run_east(self, image):
-        min_confidence = 0.5
-        orig = image.copy()
-
-        # resize the image and grab the new image dimensions
-        (H, W) = image.shape[:2]
-        newW = int(math.ceil(W/32)*32)
-        newH = int(math.ceil(H/32)*32)
-        print('[INFO] resizing {} -> {}'.format((W,H), (newW,newH)))
-        rW = W / float(newW)
-        rH = H / float(newH)
-        image = cv2.resize(image, (newW, newH))
-        (H, W) = image.shape[:2]
-
-        # define the two output layer names for the EAST detector model that
-        # we are interested -- the first is the output probabilities and the
-        # second can be used to derive the bounding box coordinates of text
-        layerNames = [
-            "feature_fusion/Conv_7/Sigmoid",
-            "feature_fusion/concat_3"]
-
-        # load the pre-trained EAST text detector
-        print("[INFO] loading EAST text detector...")
-        net = cv2.dnn.readNet(self.basedir + 'frozen_east_text_detection.pb')
-
-        # construct a blob from the image and then perform a forward pass of
-        # the model to obtain the two output layer sets
-        blob = cv2.dnn.blobFromImage(image, 1.0, (W, H),
-            (123.68, 116.78, 103.94), swapRB=True, crop=False)
-        start = time.time()
-        net.setInput(blob)
-        (scores, geometry) = net.forward(layerNames)
-        end = time.time()
-
-        # show timing information on text prediction
-        print("[INFO] text detection took {:.6f} seconds".format(end - start))
-
-        # grab the number of rows and columns from the scores volume, then
-        # initialize our set of bounding box rectangles and corresponding
-        # confidence scores
-        (numRows, numCols) = scores.shape[2:4]
-        rects = []
-        confidences = []
-
-        # loop over the number of rows
-        for y in range(0, numRows):
-            # extract the scores (probabilities), followed by the geometrical
-            # data used to derive potential bounding box coordinates that surround text
-            scoresData = scores[0, 0, y]
-            xData0 = geometry[0, 0, y]
-            xData1 = geometry[0, 1, y]
-            xData2 = geometry[0, 2, y]
-            xData3 = geometry[0, 3, y]
-            anglesData = geometry[0, 4, y]
-
-            # loop over the number of columns
-            for x in range(0, numCols):
-                # if our score does not have sufficient probability, ignore it
-                if scoresData[x] < min_confidence:
-                    continue
-
-                # compute the offset factor as our resulting feature maps will be 4x smaller than the input image
-                (offsetX, offsetY) = (x * 4.0, y * 4.0)
-
-                # extract the rotation angle for the prediction and then compute the sin and cosine
-                angle = anglesData[x]
-                cos = np.cos(angle)
-                sin = np.sin(angle)
-
-                # use the geometry volume to derive the width and height of the bounding box
-                h = xData0[x] + xData2[x]
-                w = xData1[x] + xData3[x]
-
-                # compute both the starting and ending (x, y)-coordinates for the text prediction bounding box
-                endX = int(offsetX + (cos * xData1[x]) + (sin * xData2[x]))
-                endY = int(offsetY - (sin * xData1[x]) + (cos * xData2[x]))
-                startX = int(endX - w)
-                startY = int(endY - h)
-
-                # add the bounding box coordinates and probability score to our respective lists
-                rects.append((startX, startY, endX, endY))
-                confidences.append(scoresData[x])
-
-        # apply non-maxima suppression to suppress weak, overlapping bounding boxes
-        boxes = non_max_suppression(np.array(rects), probs=confidences)
-        #boxes = rects
-
-        # loop over the bounding boxes
-        drop = []
-        for (startX, startY, endX, endY) in boxes:
-            # scale the bounding box coordinates based on the respective ratios
-            #startX = int(startX * rW)
-            #startY = int(startY * rH)
-            #endX = int(endX * rW)
-            #endY = int(endY * rH)
-
-            # draw the bounding box on the image
-            #cv2.rectangle(orig, (startX, startY), (endX, endY), (0, 255, 0), 2)
-            cv2.rectangle(image, (startX, startY), (endX, endY), (0, 255, 0), 2)
-
-            # get text
-            img_box = orig[startY:endY, startX:endX]
-            #(H, W) = img_box.shape[:2]
-            #print(startX, endX, startY, endY, H, W)
-            drop.append(self._run_tesseract(img_box))
-            #cv2.imshow("Text line", img_box)
-            #cv2.waitKey(0)
-
-        # show the output image
-        #cv2.imshow("Text Detection", orig)
-        cv2.imshow("Text Detection", image)
-        cv2.waitKey(0)
+      cv2.imshow('tesseract', image)
+      cv2.imwrite('tesseract.png', image)
+      #cv2.waitKey()
+      res = pytesseract.image_to_data(image, config=self.config_tesseract+' --psm 7')
+      #print('res: {}'.format(res))
+      #conf, text = res.splitlines()[-1].split()[-2:]
+      conf, text = [], []
+      for l in res.splitlines()[1:]:
+        #print(l.split())
+        c, t = l.split()[-2:]
+        #print(c, t)
+        if t != '-1' and float(c) > 0:
+          conf.append(c)
+          text.append(t)
+      #print([l.split()[-2:] for l in res.splitlines()])
+      #print(zip([l.split()[-2:] for l in res.splitlines()]))
+      #conf, text = zip([l.split()[-2:] for l in res.splitlines()])
+      print('detected[{}]: {}'.format(conf, text))
+      return ' '.join(text)
 
 
 dropper = Drop()
 
-def py_droprec(img, timestamp=0, start_y=0):
-    print('SZ droprec timestamp = {}'.format(timestamp))
-    #return ''
-    x1,x2 = 137,510 # basic
-    #img = img[x1:x2, :]
-    #img = img[140:295, 167:765] # all drop range
-    #cv2.imshow(timestamp + ' cropped', img)
-    #print ("Contents of a :")
-    #print (a)
-    #c = '42str'
-    #return c
-    #img = img[244:144, 362:161]
-    #img = img[145:161, 244:362] # one box
-    #img = img[146:163, 244:362] # one box extended
-    #img = img[:580, :] # cut only small bottom
-    cv2.imshow('input', img)
-    drop = dropper.process_drop(img, start_y)
-    dropper.reset_drop()
-    #print(drop)
-    s = '\n'.join(drop)
-    return s
+def py_droprec(img, timestamp=0, start_y=0, signal_x={}):
+  dropper.img_orig = img
+  print('SZ droprec timestamp = {}'.format(timestamp))
+  #return ''
+  x1,x2 = 137,510 # basic
+  #img = img[x1:x2, :]
+  #img = img[140:295, 167:765] # all drop range
+  #cv2.imshow(timestamp + ' cropped', img)
+  #print ("Contents of a :")
+  #print (a)
+  #c = '42str'
+  #return c
+  #img = img[244:144, 362:161]
+  #img = img[145:161, 244:362] # one box
+  #img = img[146:163, 244:362] # one box extended
+  #img = img[:580, :] # cut only small bottom
+  cv2.imshow('input', img)
+  cv2.imwrite('input.png', img)
+  drop = dropper.process_drop(img, start_y, signal_x)
+  dropper.reset_drop()
+  #print(drop)
+  s = '\n'.join(drop)
+  return s
 
 
 image_types = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
@@ -536,7 +421,7 @@ def list_files(basePath, validExts=None, contains=None):
 def list_images(basePath, contains=None):
     print(basePath)
     if not os.path.isdir(basePath):
-        print('dupa')
+        #print('dupa')
         return basePath
     # return the set of files that are valid
     return list_files(basePath, validExts=image_types, contains=contains)
@@ -545,10 +430,10 @@ if __name__ == '__main__':
   # crop_img = img[y:y+h, x:x+w]
   start_y=23
   #fin = '/home/zenaiev/games/Diablo2/ssr/158458820669.png'
-  #fin = '../../502/screens/95621693075.png'
+  fin = '../../502/screens/95621693075.png'
   #fin = '../../502/screens/97525956388.png'
   #fin = '../../502/screens/95842955271.png'
-  fin = '../../502/screens/95509173077.png'
+  #fin = '../../502/screens/95509173077.png'
   '../../502/screens/95127533078.png'
   '../../502/screens/98362279672.png'
   '../../502/screens/95982595271.png'
@@ -574,10 +459,13 @@ if __name__ == '__main__':
     #img = np.int8(img)
     #img = np.int8(img)
     #img = img[140:169, 244:362] # one box extended
-    img = img[start_y:550, :] # cut only small top and bottom
+    #img = img[start_y:550, :] # cut only small top and bottom
     #img = img[320:340, 335:407]
     #img = img[300:340, 335:407]
-    ret = py_droprec(img, start_y=start_y)
+    #img = img[300:340, 315:427]
+    img = img[300:340, 275:467] # two items
+    signal_x = {4: [9, 187], 22: [61, 132]}
+    ret = py_droprec(img, start_y=start_y, signal_x=signal_x)
     print(ret)
   else:
     for img_name in list_images(sys.argv[1]):
