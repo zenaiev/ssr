@@ -22,6 +22,42 @@ class Drop:
       with open(self.basedir + 'd2-drop-items.txt') as f:
           self.items = [l[:-1] for l in f.readlines()]
       self.current_drop = []
+      self.xy_sig = []
+      self.xy_bkg = []
+    
+    def stats(self):
+      if len(self.xy_bkg) == 0 and len(self.xy_sig) == 0:
+        return
+      ncuts = len(self.xy_bkg[0]) if len(self.xy_bkg) != 0 else len(self.xy_sig[0])
+      print('ncuts = {}'.format(ncuts))
+      #print('bkg:\n{}'.format(dropper.xy_bkg))
+      bkg_aver = [0] * ncuts
+      sig_aver = [0] * ncuts
+      sig_extr = [0] * ncuts
+      for i in range(ncuts):
+        bkg_aver[i] = sum(x[i] for x in dropper.xy_bkg) / len(dropper.xy_bkg)
+        sig_aver[i] = sum(x[i] for x in dropper.xy_sig) / len(dropper.xy_sig)
+        sig_extr[i] = min(x[i] for x in dropper.xy_sig)
+      #print([all(x[i] > sig_extr[i] for i in range(ncuts)) for x in dropper.xy_bkg])
+      cuts = sig_extr
+      #cuts[0] = 25
+      #cuts[1] = 25
+      #cuts = [20, 20, 35, 220, 20]
+      fp = sum(all(x[i] >= cuts[i] for i in range(ncuts)) for x in dropper.xy_bkg)
+      tp = sum(all(x[i] >= cuts[i] for i in range(ncuts)) for x in dropper.xy_sig)
+      fn = sum(any(x[i] < cuts[i] for i in range(ncuts)) for x in dropper.xy_sig)
+      tn = sum(any(x[i] < cuts[i] for i in range(ncuts)) for x in dropper.xy_bkg)
+      #print('sig:\n{}'.format(dropper.xy_sig))
+      print('sig')
+      str_sig = '{:8.1f}'*ncuts
+      print(str_sig)
+      for s in dropper.xy_sig:
+        print(str_sig.format(*s))
+      print('average bkg: {}'.format(bkg_aver))
+      print('average sig: {}'.format(sig_aver))
+      print('extreme sig: {}'.format(sig_extr))
+      print('FP, FN, TP, TN: {}, {}, {}, {}'.format(fp, fn, tp, tn))
+      print('cuts = {}'.format(cuts))
     
     def reset_drop(self):
         self.current_drop = []
@@ -39,10 +75,17 @@ class Drop:
         img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         #img_gray = np.int16(img_gray)
         img_gray = np.float32(img_gray)
-        ys = self._detect_y(img_gray, signal)
-        print(ys)
-        ls, rs = self._detect_x(img_gray, ys, signal)
-        print(ls, rs)
+        ys, ls = self._detect_boxes(img_gray, signal=signal)
+        #a
+        ys = [y+1 for y in ys]
+        ls = [y+1 for y in ls]
+        rs = [x+30 for x in ls]
+        #return []
+        #ys = self._detect_y_new(img_gray, signal)
+        #ys = self._detect_y(img_gray, signal)
+        print(ys, ls, rs)
+        #ls, rs = self._detect_x(img_gray, ys, signal)
+        #print(ls, rs)
         drop = []
         i = 0
         for y,l,r in zip(ys, ls, rs):
@@ -66,7 +109,177 @@ class Drop:
       assert x1 <= img.shape[1]
       img[y0:y1, x0:x1] = np.zeros(img[y0:y1, x0:x1].shape)
 
-    def _detect_y(self, img, start_y = 0, signal = [222, 237, 252, 267, 282, 300], signal_x = {}):
+    def _detect_boxes(self, img, signal=[]):
+      #print('img.shape: {}', img.shape)
+      len_x = 30
+      len_y = self.box_height
+      start_x = 4
+      grady = cv2.filter2D(img, -1, np.matrix('1; -1'), anchor=(0,0))[:-1, :]
+      grady_t = grady[:-len_y, :]
+      grady_b = -1 * grady[len_y:, :]
+      grady_t_slice = cv2.filter2D(grady_t, -1, np.matrix('1 '*len_x), anchor=(0,0))[:, :-len_x-1] / len_x
+      grady_b_slice = cv2.filter2D(grady_b, -1, np.matrix('1 '*len_x), anchor=(0,0))[:, :-len_x-1] / len_x
+      gradx = cv2.filter2D(img, -1, np.matrix('1 -1'), anchor=(0,0))[:, :-1]
+      gradx_l_slice = cv2.filter2D(gradx, -1, np.matrix(';'.join(['1']*len_y)), anchor=(0,0))[:-len_y-1, :-len_x] / len_y
+      gradx_abs = np.absolute(gradx)
+      gradx_abs_start = cv2.filter2D(gradx_abs, -1, np.matrix(';'.join(['1 '*start_x]*len_y)), anchor=(0,0))[:-len_y-1, 1:-len_x+1] / len_y / start_x
+      gradx_abs_start = 255 - gradx_abs_start
+      gradx_abs_text = cv2.filter2D(gradx_abs, -1, np.matrix(';'.join(['1 '*(len_x-start_x)]*len_y)), anchor=(0,0))[:-len_y-1, 1+start_x:-len_x+start_x+1] / len_y / (len_x-start_x)
+      l_minus1 = cv2.filter2D(img, -1, np.matrix('1;1;1;1;-1;-1;-1;-1;-1;-1;-1;-1;1;1;1;1'), anchor=(0,0))[:-17, :-len_x-1] / 16.
+      #print('img.shape {} vars {} {} {} {} {}'.format(img.shape, grady_t_slice.shape, grady_b_slice.shape, gradx_l_slice.shape, gradx_abs_start.shape, gradx_abs_text.shape))
+      ys, xs = [], []
+      if len(self.cuts) != 0:
+        sig = np.zeros(grady_t_slice.shape)
+        for x in range(grady_t_slice.shape[1]):
+          for y in range(grady_t_slice.shape[0]):
+            sum3 = grady_t_slice[y, x] + grady_b_slice[y, x] + gradx_l_slice[y, x]
+            sig[y, x] = self._cuts(grady_t_slice[y, x], grady_b_slice[y, x], gradx_l_slice[y, x], sum3, gradx_abs_start[y, x], gradx_abs_text[y, x], l_minus1[y, x])
+            if sig[y, x]:
+              ys.append(y)
+              xs.append(x)
+        return ys, xs
+      elif len(signal) != 0:
+        sig = np.zeros(grady_t_slice.shape)
+        for s in signal:
+          y, x = s[0]-1, s[1]-1
+          sum3 = grady_t_slice[y, x] + grady_b_slice[y, x] + gradx_l_slice[y, x]
+          print('signal y,x {} {}: {}'.format(y, x, (grady_t_slice[y, x], grady_b_slice[y, x], gradx_l_slice[y, x], sum3, gradx_abs_start[y, x], gradx_abs_text[y, x], l_minus1[y, x])))
+          sig[y, x] = 1
+          self.xy_sig.append((grady_t_slice[y, x], grady_b_slice[y, x], gradx_l_slice[y, x], sum3, gradx_abs_start[y, x], gradx_abs_text[y, x], l_minus1[y, x]))
+          ys.append(y)
+          xs.append(x)
+        for x in range(grady_t_slice.shape[1]):
+          for y in range(grady_t_slice.shape[0]):
+            if sig[y, x] == 0:
+              sum3 = grady_t_slice[y, x] + grady_b_slice[y, x] + gradx_l_slice[y, x]
+              self.xy_bkg.append((grady_t_slice[y, x], grady_b_slice[y, x], gradx_l_slice[y, x], sum3, gradx_abs_start[y, x], gradx_abs_text[y, x], l_minus1[y, x]))
+      return ys, xs
+      #a
+
+    def _cuts(self, t, b, l, sum3, start, text, lm1):
+      if t >= self.cuts[0] and b >= self.cuts[1] and l >= self.cuts[2] and sum3 >= self.cuts[3] and start >= self.cuts[4] and text >= self.cuts[5] and lm1 >= self.cuts[6]:
+        return True
+      else:
+        return False
+
+    def _detect_y_new(self, img, signal=[]):
+      slice_x = 30
+      box_y = self.box_height
+      print('img.shape: {}', img.shape)
+      #'1 '*slice_x + ';' + ';'.join('-1')
+      grady = cv2.filter2D(img, -1, np.matrix('1; -1'), anchor=(0,0)) / 2
+      grady_abs = np.absolute(grady)
+      print('grady.shape: {}', grady.shape)
+      grady_p = grady[:-self.box_height, :]
+      grady_m = -1 * grady[self.box_height:, :]
+      print('grady_p.shape: {}', grady_p.shape)
+      y_sum_p = np.sum(grady_p, axis=1)
+      y_sum_m = np.sum(grady_m, axis=1)
+      y_slice_p = [0] * len(y_sum_p)
+      y_slice_m = [0] * len(y_sum_m)
+      grady_p_slicex = cv2.filter2D(grady_p, -1, np.matrix('1 '*slice_x), anchor=(0,0)) / slice_x
+      grady_m_slicex = cv2.filter2D(grady_m, -1, np.matrix('1 '*slice_x), anchor=(0,0)) / slice_x
+      gradx = cv2.filter2D(img, -1, np.matrix('1 -1'), anchor=(0,0)) / 2
+      print('gradx.shape: {}', gradx.shape)
+      gradx_slicey = cv2.filter2D(gradx, -1, np.matrix(';'.join(['1']*box_y)), anchor=(0,0))[:-self.box_height] / box_y
+      print('grady_p_slicex.shape: {}', grady_p_slicex.shape)
+      print('grady_m_slicex.shape: {}', grady_m_slicex.shape)
+      print('gradx_slicey.shape: {}', gradx_slicey.shape)
+      grady_p_slicex[grady_p_slicex<0] = 0
+      grady_m_slicex[grady_m_slicex<0] = 0
+      gradx_slicey[gradx_slicey<0] = 0
+      grady_p_slicex = np.uint8(grady_p_slicex)
+      grady_m_slicex = np.uint8(grady_m_slicex)
+      gradx_slicey = np.uint8(gradx_slicey)
+      #print(grady_p_slicex[:, :14], grady_m_slicex[:, :14], gradx_slicey[:, :14])
+      img3 = cv2.merge((grady_p_slicex[:-1],grady_m_slicex[:-1],gradx_slicey[1:]))
+      for s in signal:
+        print('signal y,x0,x1 {} {}: {} {} {}'.format(s['y'], s['x0'], grady_p_slicex[s['y']-1, s['x0']-1], grady_m_slicex[s['y']-1, s['x0']-1], gradx_slicey[s['y']-1, s['x0']-1]))
+      self._waypoint(img3, '3')
+      mask = cv2.inRange(img3, np.array([7, 7, 7]), np.array([255, 255, 255]))
+      print(mask)
+      a
+      gradx_abs = np.absolute(gradx)
+      grady_abs_slicex = cv2.filter2D(gradx_abs, -1, np.matrix('1 '*slice_x), anchor=(0,0)) / slice_x
+      gradx_abs_box = cv2.filter2D(gradx_abs, -1, np.matrix(';'.join(['1 '*slice_x]*box_y)), anchor=(0,0)) / slice_x / box_y
+      grady_abs_box = cv2.filter2D(grady_abs, -1, np.matrix(';'.join(['1 '*slice_x]*box_y)), anchor=(0,0)) / slice_x / box_y
+      print('gradx_abs_box.shape: {}', gradx_abs_box.shape)
+      for y in range(grady_p.shape[0]):
+        if y_sum_p[y] < 0 or y_sum_m[y] < 0: continue
+        plt.plot(grady_p_slicex[y, :], label='grady_p_slicex')
+        plt.plot(grady_m_slicex[y, :], label='grady_m_slicex')
+        plt.plot(gradx_abs_box[y, :], label='gradx_abs_box')
+        plt.plot(grady_abs_box[y, :], label='grady_abs_box')
+        plt.plot(grady_abs_slicex[y, :], label='grady_abs_slicex')
+        plt.legend()
+        plt.show()
+        #cv2.waitKey()
+        slice_p, x0_p, x1_p = self._max_slice(grady_p[y, :], 5, -5)
+        slice_m, x0_m, x1_m = self._max_slice(grady_m[y, :], 5, -5)
+        print(y, slice_p, x0_p, x1_p, slice_m, x0_m, x1_m)
+        if slice_p > slice_m:
+          slice_m = sum(grady_m[y, x0_p:x1_p+1])
+          x0, x1 = x0_p, x1_p
+        else:
+          slice_p = sum(grady_p[y, x0_m:x1_m+1])
+          x0, x1 = x0_m, x1_m
+        y_slice_p[y] = slice_p
+        y_slice_m[y] = slice_m
+      #grady_p_slice = cv2.filter2D(grady_p, -1, np.matrix('1 '*30))
+      #print('grady_p_slice.shape: {}', grady_p_slice.shape)
+      #grady_m_slice = cv2.filter2D(grady_m, -1, np.matrix('1 '*30))
+      #self._set_to_zero(grady_p, y0=grady_p.shape[0]-1)
+      grady_p_abs = np.absolute(grady_p)
+      grady_m_abs = np.absolute(grady_m)
+      fig, axes = plt.subplots(1, 1, sharex=True, squeeze=True)
+      ax = [axes]
+      ax.append(plt)
+      plt.subplots_adjust(hspace = 0.0, left = 0.06, right = 0.97)
+      #print(ax)
+      ax[0].xaxis.set_major_locator(ticker.MultipleLocator(10))
+      #ax[0].plot(range(img.shape[1], np.sum(grady[:-self.box_height], axis=1).tolist()))
+      #ax[0].plot(range(img.shape[1], np.sum(grady[self.box_height:], axis=1).tolist()))
+      #ax[0].plot(np.sum(grady_p[:-self.box_height], axis=1), label='grady_p')
+      #ax[0].plot(np.sum(grady_m[self.box_height:], axis=1), label='grady_m')
+      ax[0].plot(y_slice_p, label='y_slice_p')
+      ax[0].plot(y_slice_m, label='y_slice_m')
+      #ax[0].plot(np.sum(grady_p_abs[:-self.box_height], axis=1), label='grady_abs_p')
+      #ax[0].plot(np.sum(grady_m_abs[self.box_height:], axis=1), label='grady_abs_m')
+      ax[0].legend()
+      print(signal)
+      for s in signal:
+        ax[0].vlines(s['y'], *ax[0].get_ylim(), colors='r')
+      #ax[0].set_xlim(100, 200)
+      ax[0].set_ylim(0, None)
+      plt.show()
+      #cv2.waitKey()
+      a
+      return []
+
+    def _max_slice(self, A0, x_min=None, x_max=None):
+      #print(len(A0), A0, x_min, x_max)
+      if x_min is None:
+        x_min = 0
+      if x_max is None:
+        x_max = len(A0)
+      A = A0[x_min:x_max]
+      max = A[0]
+      acc = 0
+      x0, x1 = 0, 0
+      for ie,e in enumerate(A):
+        acc += e
+        if acc > max:
+          max = acc
+          x1 = ie
+        elif acc < 0:
+          acc = 0
+          x0 = ie + 1
+      if x0 == len(A):
+        x0 -= 1
+      return (max, x0+x_min, x1+x_min)
+
+
+    def _detect_y(self, img, signal=[]):
       npix_sum = 25
       min_mean = 20
       img_dy_t = cv2.filter2D(img[:-self.box_height, :], -1, np.matrix('1; -1'))
@@ -75,15 +288,17 @@ class Drop:
       img_dy_tb_mean = cv2.filter2D(img_dy_tb, -1, np.matrix('1 '*npix_sum)) / (2*npix_sum)
       assert npix_sum % 2 == 1
       dx = int((npix_sum - 1) / 2)
-      # set to zero top of window
-      self._set_to_zero(img_dy_tb_mean, y1=25)
-      # set to zero x margins
-      self._set_to_zero(img_dy_tb_mean, x1=dx)
-      self._set_to_zero(img_dy_tb_mean, x0=-dx)
-      # set to zero merc
-      self._set_to_zero(img_dy_tb_mean, y0=0, y1=75, x0=18, x1=65)
-      # plugy msg
-      self._set_to_zero(img_dy_tb_mean, y0=104, y1=134, x0=14, x1=293)
+      if img.shape[0] > 500:
+        # set to zero top of window
+        self._set_to_zero(img_dy_tb_mean, y1=25)
+        # set to zero merc
+        self._set_to_zero(img_dy_tb_mean, y0=0, y1=75, x0=18, x1=65)
+        # plugy msg
+        self._set_to_zero(img_dy_tb_mean, y0=104, y1=134, x0=14, x1=293)
+      if img.shape[0] > 700:
+        # set to zero x margins
+        self._set_to_zero(img_dy_tb_mean, x1=dx)
+        self._set_to_zero(img_dy_tb_mean, x0=-dx)
       #img_dy_tb_mean[img_dy_tb_mean < min_value] = 0
       img_mask = np.zeros(img_dy_tb.shape, img.dtype)
       for y in range(img.shape[0]-16-1):
@@ -120,7 +335,7 @@ class Drop:
           if r_rms[x] != 0:
             r_rat[x] = r[x] / r_rms[x] * 10
         fig, (ax1, ax2) = plt.subplots(2, 1, sharex='col')
-        fig.subplots_adjust(hspace = 0.0, left = 0.06, right = 0.97)
+        plt.subplots_adjust(hspace = 0.0, left = 0.06, right = 0.97)
         ax1.plot(range(img.shape[1]), l)
         ax1.plot(range(img.shape[1]), l_rms)
         ax1.plot(range(img.shape[1]), l_rat)
@@ -224,12 +439,18 @@ class Drop:
 
 dropper = Drop()
 
-def py_droprec(img, timestamp=0, y0=0, y1=570, x0=None, x1=None, signal=[]):
+def py_droprec(img, timestamp=0, y0=20, y1=570, x0=None, x1=None, signal=[]):
+  print('SZ droprec timestamp = {}, crop = [{}:{}, {}:{}], signal = {}'.format(timestamp, y0, y1, x0, x1, signal))
+  signal_copy = signal.copy()
+  for s in signal_copy:
+    if y0 is not None:
+      s[0] = s[0] - y0
+    if x0 is not None:
+      s[1] = s[1] - x0
   dropper.img_orig = img
   dropper.timestamp = timestamp
-  print('SZ droprec timestamp = {}, crop = [{}:{}, {}:{}], signal = {}'.format(timestamp, y0, y1, x0, x1, signal))
   img_cropped = img[y0:y1, x0:x1]
-  drop = dropper.process_drop(img_cropped, signal)
+  drop = dropper.process_drop(img_cropped, signal_copy)
   dropper.reset_drop()
   #print(drop)
   s = '\n'.join(['({}){}[{}]'.format(d[2], d[0], d[1]) for d in drop])
@@ -265,6 +486,14 @@ def list_images(basePath, contains=None):
     return list_files(basePath, validExts=image_types, contains=contains)
 
 if __name__ == '__main__':
+  '''print(dropper._max_slice([-2, 1, 2, 5, 1, -1, 3, 30, -5, -25, 35, -45]))
+  print(dropper._max_slice([-1, 2, -5, 12, -21, 33, 30, -15, 25, 35, -10, 11, -12]))
+  print(dropper._max_slice([-1, 2, -5, 12, -21, 33, 30, -15, 25, 35, -10, 11, -12, 45]))
+  print(dropper._max_slice([-1, 2, -5, 12, -21, 33, 30, -15, 25, 35, -10, 11, -12, 45], 7, 10))
+  print(dropper._max_slice([-1]))
+  print(dropper._max_slice([1]))
+  print(dropper._max_slice([0]))
+  a'''
   np.set_printoptions(threshold=np.inf, linewidth=np.inf)
   #x0, x1, y0, y1 = None, None, None, None
   # nominal top and bottom
@@ -296,23 +525,25 @@ if __name__ == '__main__':
   '../../502/screens/96011475271.png'
   '../../502/screens/97078835945.png'
   # remove 141, 142
+  ##dropper.cuts = [20, 20, 34.1875, 238.1875, 19.189903]
+  dropper.cuts = []
+  #dropper.cuts = [25, 25, 34.1875, 238.1875, 19.189903, -20.4375]
+  dropper.cuts = [20, 20.1, 7.9375, 71.4375, 230.82812, 19.189903, -25.0625]
   if len(sys.argv) == 1:
-    #img = cv2.imread(fin)
-    #img = np.int8(img)
-    #img = np.int8(img)
-    #img = img[140:169, 244:362] # one box extended
-    #img = img[start_y:550, :] # cut only small top and bottom
-    #img = img[320:340, 335:407]
-    #img = img[300:340, 335:407]
-    #img = img[300:340, 315:427]
-    #img = img[300:340, 275:467] # two items
-    #signal_x = {4: [9, 187], 22: [61, 132]}
-    #ret = py_droprec(cv2.imread('../../502/screens/95621693075.png'), y0=300, y1=340, x0=275, x1=467)
-    ret = py_droprec(cv2.imread('../../502/screens/95621693075.png'))
+    GHP = 'Greater Healing Potion'
+    GMP = 'Greater Mana Potion'
+    SHP = 'Super Healing Potion'
+    SMP = 'Super Mana Potion'
+    FRP = 'Full Rejuvenation Potion'
+    RP = 'Rejuvenation Potion'
+    #ret = py_droprec(cv2.imread('../../502/screens/95621693075.png'), y0=300, y1=345, x0=275, x1=465, signal=[{'y': 4, 'x0': 10}, {'y': 22, 'x0': 62}])
+    ret = py_droprec(cv2.imread('../158458820669.png'), signal=[[145,245,361,'Martel De Fer','y'],[145,363,553,GHP,'w'],[145,555,745,GHP,'w'],[160,221,319,'Tusk Sword','g'],[160,321,526,FRP,'w'],[175,232,408,GMP,'w'],[190,222,351,'Studded Leather','b'],[205,226,381,SMP,'w'],[220,249,425,GMP,'w'],[235,176,366,GHP,'w'],[251,270,403,'Conquest Sword','y'],[268,207,397,GHP,'w']])
+    ret = py_droprec(cv2.imread('../../502/screens/94456900671.png'), signal=[[249,328,419,'Bone Wand','y'],[249,421,576,SMP,'w'],[249,578,783,FRP,'w'],[264,268,407,'Flawed Amethyst','w'],[264,409,574,RP,'w'],[279,307,476,SHP,'w'],[294,312,400,'Bone Shield','b'],[309,289,458,SHP,'w'],[324,326,491,RP,'w'],[339,244,434,GHP,'w'],[357,386,432,'Jewel','y'],[376,296,451,SMP,'w']])
     print(ret)
   else:
     for img_name in list_images(sys.argv[1]):
       print(img_name)
       img = cv2.imread(img_name)
-      ret = py_droprec(img)
+      ret = py_droprec(img, cuts=cuts)
       print(ret)
+  dropper.stats()
