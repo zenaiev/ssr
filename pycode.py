@@ -46,8 +46,13 @@ class Drop:
     
     def stats(self):
       if len(self.sig):
+        print('{:20s}{:>18s}  {:>18s}  {:>5s} [{:>6s}]{:>8s}{:>8s}'.format('Variable', 'sig', 'bkg', 'cut', 'q', 'sig_egg', 'bkg_eff'))
         for i in range(len(self.sig[0])):
-          self._plot('Var {}'.format(i), [v[i] for v in self.sig], [v[i] for v in self.bkg], np.linspace(-120, 120, 100), 0.90)
+          if i%3 == 0:
+            fig, axes = plt.subplots(3, 1, sharex=True, squeeze=True)
+          ax = axes[i%3]
+          #plt.subplots_adjust(hspace = 0.0, left = 0.06, right = 0.97)
+          self._plot('Var {}'.format(i), [v[i] for v in self.sig], [v[i] for v in self.bkg[:10000]], np.linspace(-255, 100, 100), [1.0, 0.90], ax, col=['b','g','r'][i%3])
       plt.show(block=False)
       cv2.waitKey()
       if len(self.xy_bkg) == 0 and len(self.xy_sig) == 0:
@@ -98,19 +103,28 @@ class Drop:
       cv2.waitKey()
       #input("Press Enter to continue...")
 
-    def _plot(self, label, sig, bkg, bins=None, q=0.90):
-      c, sig_eff, bkg_eff= self._calc_sig_bkg_eff(sig, bkg, q)
-      print('{}: sig mean {} min {}; bkg mean {}; eff q = {} c = {} sig {} bkg {}'.format(label, sum(sig)/len(sig), min(sig), sum(bkg)/len(bkg), q, c, sig_eff, bkg_eff))
-      plt.figure(label)
+    def _plot(self, label, sig, bkg, bins=None, qs=[0.90], ax=None, col=None):
+      print('{:20s}{:5.0f} [{:5.0f}{:5.0f}]  {:5.0f} [{:5.0f}{:5.0f}]'.format(label, sum(sig)/len(sig), min(sig), max(sig), sum(bkg)/len(bkg), min(bkg), max(bkg)), end='')
+      for q in qs:
+        c, sig_eff, bkg_eff= self._calc_sig_bkg_eff(sig, bkg, q)
+        print('  {:5.0f} [{:6.1f}]{:8.4f}{:8.4f}'.format(c, q, sig_eff, bkg_eff), end='')
+      print()
+      #print('{}: sig mean[min,max] {.0f}[{}{}] min {}; bkg mean {}; eff q = {} c = {} sig {} bkg {}'.format(label, sum(sig)/len(sig), min(sig), sum(bkg)/len(bkg), q, c, sig_eff, bkg_eff))
+      if ax is None:
+        ax = plt
+      #ax.figure(label)
       if bins is not None:
-        plt.hist(bkg, bins, alpha=0.5, density=True, label='bkg')
+        ax.hist(bkg, bins, alpha=0.5, density=True, label='bkg', color='k')
       else:
-        _,bins,_ = plt.hist(bkg, alpha=0.5, density=True, label='bkg')
-      plt.hist(sig, bins, alpha=0.5, density=True, label='sig')
-      plt.legend()
+        _,bins,_ = ax.hist(bkg, alpha=0.5, density=True, label='bkg', color=col)
+      ax.hist(sig, bins, alpha=0.5, density=True, label='sig', color=col)
+      ax.legend()
 
     def _calc_sig_bkg_eff(self, sig, bkg, q):
-      c = np.quantile(sig, 1-q)
+      if q == 1.0:
+        c = min(sig)
+      else:
+        c = np.quantile(sig, 1-q)
       sig_eff = sum(1 for v in sig if v >= c) / len(sig)
       bkg_eff = sum(1 for v in bkg if v >= c) / len(bkg)
       #print('sig_eff {} bkg_eff {} cut {}'.format(sig_eff, bkg_eff, c))
@@ -142,7 +156,7 @@ class Drop:
         #return []
         #ys = self._detect_y_new(img_gray, signal)
         #ys = self._detect_y(img_gray, signal)
-        print(ys, ls, rs)
+        #print(ys, ls, rs)
         #ls, rs = self._detect_x(img_gray, ys, signal)
         #print(ls, rs)
         drop = []
@@ -153,7 +167,7 @@ class Drop:
           i += 1
         for y,l,r in zip(ys, ls, rs):
           cv2.rectangle(img, (l-1, y-1), (r+1, y+self.box_height), (0, 255, 0), 1)
-        print('{}: {}'.format(len(drop), drop))
+        print('drop {}: {}'.format(len(drop), drop))
         self._waypoint(img, 'output', 1)
         return drop
 
@@ -518,7 +532,9 @@ class Drop:
     
     def _waypoint(self, img, label, wait=False):
       cv2.imshow(label, img)
-      cv2.imwrite('img/{}_{}.png'.format(self.timestamp, label), img)
+      fname = 'img/{}_{}.png'.format(self.timestamp, label)
+      cv2.imwrite(fname, img)
+      print('stored {}'.format(fname))
       if wait:
         cv2.waitKey()
 
@@ -627,6 +643,11 @@ def list_images(basePath, contains=None):
     # return the set of files that are valid
     return list_files(basePath, validExts=image_types, contains=contains)
 
+def get_img(img_name):
+  img = cv2.imread(img_name)
+  timestamp = os.path.splitext(os.path.basename(img_name))[0]
+  return img, timestamp
+
 if __name__ == '__main__':
   '''print(dropper._max_slice([-2, 1, 2, 5, 1, -1, 3, 30, -5, -25, 35, -45]))
   print(dropper._max_slice([-1, 2, -5, 12, -21, 33, 30, -15, 25, 35, -10, 11, -12]))
@@ -681,12 +702,13 @@ if __name__ == '__main__':
     RP = 'Rejuvenation Potion'
     #ret = py_droprec(cv2.imread('../../502/screens_1/95621693075.png'), y0=300, y1=345, x0=275, x1=465, signal=[[4+300, 10+275], [22+300, 62+275], [1+300, 1+275]])
     #ret = py_droprec(cv2.imread('../158458820669.png'), signal=[[145,245,361,'Martel De Fer','y'],[145,363,553,GHP,'w'],[145,555,745,GHP,'w'],[160,221,319,'Tusk Sword','g'],[160,321,526,FRP,'w'],[175,232,408,GMP,'w'],[190,222,351,'Studded Leather','b'],[205,226,381,SMP,'w'],[220,249,425,GMP,'w'],[235,176,366,GHP,'w'],[251,270,403,'Conquest Sword','y'],[268,207,397,GHP,'w']])
-    ret = py_droprec(cv2.imread('../../502/screens_1/94456900671.png'), signal=[[249,328,419,'Bone Wand','y'],[249,421,576,SMP,'w'],[249,578,783,FRP,'w'],[264,268,407,'Flawed Amethyst','w'],[264,409,574,RP,'w'],[279,307,476,SHP,'w'],[294,312,400,'Bone Shield','b'],[309,289,458,SHP,'w'],[324,326,491,RP,'w'],[339,244,434,GHP,'w'],[357,386,432,'Jewel','y'],[376,296,451,SMP,'w']])
+    ret = py_droprec(*get_img('../../502/screens_1/94456900671.png'), signal=[[249,328,419,'Bone Wand','y'],[249,421,576,SMP,'w'],[249,578,783,FRP,'w'],[264,268,407,'Flawed Amethyst','w'],[264,409,574,RP,'w'],[279,307,476,SHP,'w'],[294,312,400,'Bone Shield','b'],[309,289,458,SHP,'w'],[324,326,491,RP,'w'],[339,244,434,GHP,'w'],[357,386,432,'Jewel','y'],[376,296,451,SMP,'w']])
     print(ret)
   else:
     for img_name in list_images(sys.argv[1]):
       print(img_name)
       img = cv2.imread(img_name)
-      ret = py_droprec(img, cuts=cuts)
+      timestamp = os.path.splitext(os.path.basename(img_name))[1]
+      ret = py_droprec(*get_img(img_name))
       print(ret)
   dropper.stats()
