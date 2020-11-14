@@ -22,10 +22,34 @@ class Drop:
       with open(self.basedir + 'd2-drop-items.txt') as f:
           self.items = [l[:-1] for l in f.readlines()]
       self.current_drop = []
+      self.sig = []
+      self.bkg = []
       self.xy_sig = []
       self.xy_bkg = []
+      self.xy_sig_t_pix = []
+      self.xy_bkg_t_pix = []
+      self.xy_sig_t_pix_rat = []
+      self.xy_bkg_t_pix_rat = []
+      self.xy_sig_t_pix_arb = []
+      self.xy_bkg_t_pix_arb = []
+      self.xy_bkg_t_30 = []
+      self.xy_sig_t_30 = []
+      self.xy_bkg_t_quad_30 = []
+      self.xy_sig_t_quad_30 = []
+      self.xy_bkg_t_abs_30 = []
+      self.xy_sig_t_abs_30 = []
+      self.xy_bkg_t_quad_30_20 = []
+      self.xy_sig_t_quad_30_20 = []
+      self.xy_bkg_t_abs_30_20 = []
+      self.xy_sig_t_abs_30_20 = []
+      self.use_signal_x1 = False
     
     def stats(self):
+      if len(self.sig):
+        for i in range(len(self.sig[0])):
+          self._plot('Var {}'.format(i), [v[i] for v in self.sig], [v[i] for v in self.bkg], np.linspace(-120, 120, 100), 0.90)
+      plt.show(block=False)
+      cv2.waitKey()
       if len(self.xy_bkg) == 0 and len(self.xy_sig) == 0:
         return
       ncuts = len(self.xy_bkg[0]) if len(self.xy_bkg) != 0 else len(self.xy_sig[0])
@@ -58,7 +82,40 @@ class Drop:
       print('extreme sig: {}'.format(sig_extr))
       print('FP, FN, TP, TN: {}, {}, {}, {}'.format(fp, fn, tp, tn))
       print('cuts = {}'.format(cuts))
-    
+      # t pix
+      #print(self.xy_sig_t_pix)
+      self._plot('Top edge gradient pix', self.xy_sig_t_pix, self.xy_bkg_t_pix, np.linspace(-120, 120, 100), 0.99)
+      self._plot('Top edge gradient pix ratio', self.xy_sig_t_pix_rat, self.xy_bkg_t_pix_rat, np.linspace(0, 5, 100), 0.99)
+      self._plot('Top edge gradient pix A-r*B', self.xy_sig_t_pix_arb, self.xy_bkg_t_pix_arb, np.linspace(-150, 100, 100), 0.99)
+      self._plot('Top edge sum30', self.xy_sig_t_30, self.xy_bkg_t_30, np.linspace(-100, 150, 100))
+      self._plot('Top edge quad sum30', self.xy_sig_t_quad_30, self.xy_bkg_t_quad_30, np.linspace(0, 250, 100))
+      self._plot('Top edge abs sum30', self.xy_sig_t_abs_30, self.xy_bkg_t_abs_30, np.linspace(0, 250, 100))
+      self._plot('Top edge quad sum30[20]', self.xy_sig_t_quad_30_20, self.xy_bkg_t_quad_30_20, np.linspace(0, 200, 100))
+      self._plot('Top edge abs sum30[20]', self.xy_sig_t_abs_30_20, self.xy_bkg_t_abs_30_20, np.linspace(0, 200, 100))
+      #self._plot('', self.xy_sig_t_pix, self.xy_bkg_t_pix, , 0.99)
+      plt.show(block=False)
+      #plt.draw()
+      cv2.waitKey()
+      #input("Press Enter to continue...")
+
+    def _plot(self, label, sig, bkg, bins=None, q=0.90):
+      c, sig_eff, bkg_eff= self._calc_sig_bkg_eff(sig, bkg, q)
+      print('{}: sig mean {} min {}; bkg mean {}; eff q = {} c = {} sig {} bkg {}'.format(label, sum(sig)/len(sig), min(sig), sum(bkg)/len(bkg), q, c, sig_eff, bkg_eff))
+      plt.figure(label)
+      if bins is not None:
+        plt.hist(bkg, bins, alpha=0.5, density=True, label='bkg')
+      else:
+        _,bins,_ = plt.hist(bkg, alpha=0.5, density=True, label='bkg')
+      plt.hist(sig, bins, alpha=0.5, density=True, label='sig')
+      plt.legend()
+
+    def _calc_sig_bkg_eff(self, sig, bkg, q):
+      c = np.quantile(sig, 1-q)
+      sig_eff = sum(1 for v in sig if v >= c) / len(sig)
+      bkg_eff = sum(1 for v in bkg if v >= c) / len(bkg)
+      #print('sig_eff {} bkg_eff {} cut {}'.format(sig_eff, bkg_eff, c))
+      return (c, sig_eff, bkg_eff)
+
     def reset_drop(self):
         self.current_drop = []
 
@@ -75,11 +132,13 @@ class Drop:
         img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         #img_gray = np.int16(img_gray)
         img_gray = np.float32(img_gray)
-        ys, ls = self._detect_boxes(img_gray, signal=signal)
+        #ys, ls = self._detect_boxes(img_gray, signal=signal)
+        img_float = np.float32(img)
+        ys, ls = self._boxes(img_float, signal=signal)
         #a
         ys = [y+1 for y in ys]
         ls = [y+1 for y in ls]
-        rs = [x+30 for x in ls]
+        rs = [x+32 for x in ls]
         #return []
         #ys = self._detect_y_new(img_gray, signal)
         #ys = self._detect_y(img_gray, signal)
@@ -109,6 +168,65 @@ class Drop:
       assert x1 <= img.shape[1]
       img[y0:y1, x0:x1] = np.zeros(img[y0:y1, x0:x1].shape)
 
+    def _boxes(self, img, signal=[]):
+      box_x = 31
+      #box_x = 1
+      n_box_x = 7
+      box_y = 16
+      #box_y = 1
+      mar = 4
+      t = cv2.filter2D(img, -1, np.matrix('1; -2'), anchor=(0,0))
+      #print(t[0:1, 0:1])
+      b = cv2.filter2D(img, -1, np.matrix('-2; 1'), anchor=(0,0))
+      l = cv2.filter2D(img, -1, np.matrix('1 -2'), anchor=(0,0))
+      r = cv2.filter2D(img, -1, np.matrix('-2 1'), anchor=(0,0))
+      ta = np.absolute(t)*-1
+      ba = np.absolute(b)*-1
+      la = np.absolute(l)*-1
+      ra = np.absolute(r)*-1
+      tsum = [cv2.filter2D(t, -1, np.matrix('1 '*box_x*i), anchor=(0,0))/(box_x*i) for i in range(1,n_box_x+1)]
+      tsum_max = tsum[0].copy()
+      for i in range(n_box_x-1):
+        tsum_max = cv2.max(tsum_max, tsum[1+i])
+      bsum = [cv2.filter2D(b, -1, np.matrix('1 '*box_x*i), anchor=(0,0))/(box_x*i) for i in range(1,n_box_x+1)]
+      tasum = [cv2.filter2D(ta, -1, np.matrix('1 '*box_x*i), anchor=(0,0))/(box_x*i) for i in range(1,n_box_x+1)]
+      basum = [cv2.filter2D(ba, -1, np.matrix('1 '*box_x*i), anchor=(0,0))/(box_x*i) for i in range(1,n_box_x+1)]
+      lsum = cv2.filter2D(l, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0))/(box_y)
+      lasum = cv2.filter2D(la, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0))/(box_y)
+      img_vars = cv2.merge(
+        #tuple(i[:-box_y-1, 1:-box_x, c] for i in tsum for c in range(img.shape[2])) +
+        #tuple(i[:-box_y-1, 1:-box_x, c] for i in tasum for c in range(img.shape[2])) +
+        #tuple(i[box_y:-1, 1:-box_x, c] for i in bsum for c in range(img.shape[2])) +
+        #tuple(i[box_y:-1, 1:-box_x, c] for i in basum for c in range(img.shape[2])) +
+        #tuple(lsum[1:-box_y, :-box_x-1, c] for c in range(img.shape[2])) +
+        #tuple(lasum[1:-box_y, :-box_x-1, c] for c in range(img.shape[2])) +
+        #tuple(i[:-box_y-1, 1:-box_x, c] for i in tsum for c in range(img.shape[2])) +
+        tuple(tsum_max[:-box_y-1, 1:-box_x, c] for c in range(img.shape[2])) +
+      ())
+      #print(img_vars[0:1, 0:1])
+      #print(img.shape, img_vars.shape)
+      assert img_vars.shape[0]+box_y+1 == img.shape[0] and img_vars.shape[1]+box_x+1 == img.shape[1]
+      #assert img_vars.shape[2] == 18
+      ys, xs = [], []
+      sig = np.zeros(img_vars.shape[0:2])
+      if self.cuts is None or len(self.cuts) == 0:
+        print_str = '{:4.0f}{:4.0f}{:4.0f}  {:25s}{:3s}' + '{:5.0f}'*img_vars.shape[2]
+        print(print_str.replace('.0f}', 's}').replace('{:', '{:>').format('y','x0','x1','Drop','c',*('v'+str(i) for i in range(img_vars.shape[2]))))
+        for s in signal:
+          #print(s)
+          assert s[0] > 0 and s[1] > 0
+          ar = tuple(s) + tuple(img_vars[s[0]-1, s[1]-1])
+          print(print_str.format(*ar))
+          self.sig.append(img_vars[s[0]-1, s[1]-1])
+          sig[s[0]-1, s[1]-1]
+          ys.append(s[0]-1)
+          xs.append(s[1]-1)
+        for x in range(sig.shape[1]):
+          for y in range(sig.shape[0]):
+            if sig[y, x] == 0:
+              self.bkg.append(img_vars[y, x])
+      return (ys, xs)
+    
     def _detect_boxes(self, img, signal=[]):
       #print('img.shape: {}', img.shape)
       len_x = 30
@@ -140,6 +258,7 @@ class Drop:
         return ys, xs
       elif len(signal) != 0:
         sig = np.zeros(grady_t_slice.shape)
+        sig_pix = np.zeros(grady_t_slice.shape)
         for s in signal:
           y, x = s[0]-1, s[1]-1
           sum3 = grady_t_slice[y, x] + grady_b_slice[y, x] + gradx_l_slice[y, x]
@@ -148,11 +267,35 @@ class Drop:
           self.xy_sig.append((grady_t_slice[y, x], grady_b_slice[y, x], gradx_l_slice[y, x], sum3, gradx_abs_start[y, x], gradx_abs_text[y, x], l_minus1[y, x]))
           ys.append(y)
           xs.append(x)
+          x1 = s[2]+1
+          self.xy_sig_t_pix += [img[y, xx]-img[y+1, xx] for xx in range(x+1, x1)]
+          self.xy_sig_t_pix_rat += [img[y, xx]/img[y+1, xx] for xx in range(x+1, x1) if img[y+1, xx] != 0]
+          self.xy_sig_t_pix_arb += [img[y, xx]-2*img[y+1, xx] for xx in range(x+1, x1)]
+          self.xy_sig_t_30.append(sum(img[y, xx]-img[y+1, xx] for xx in range(x+1, x+1+30))/30)
+          self.xy_sig_t_quad_30.append(math.sqrt(sum((img[y, xx]-2*img[y+1, xx])**2 for xx in range(x+1, x+1+30))/30))
+          self.xy_sig_t_abs_30.append(sum(abs(img[y, xx]-2*img[y+1, xx]) for xx in range(x+1, x+1+30))/30)
+          diff = [img[y, xx]-2*img[y+1, xx] for xx in range(x+1, x+1+30)]
+          diff.sort()
+          self.xy_sig_t_quad_30_20.append(math.sqrt(sum(xx**2 for xx in diff[5:25])/20))
+          self.xy_sig_t_abs_30_20.append(sum(abs(v) for v in diff[5:25])/20)
+          print(self.xy_sig_t_quad_30[-1], self.xy_sig_t_quad_30_20[-1], [(img[y, xx]-2*img[y+1, xx]) for xx in range(x+1, x+1+30)])
+          sig_pix[y, x+1:x1] = 1
         for x in range(grady_t_slice.shape[1]):
           for y in range(grady_t_slice.shape[0]):
             if sig[y, x] == 0:
               sum3 = grady_t_slice[y, x] + grady_b_slice[y, x] + gradx_l_slice[y, x]
               self.xy_bkg.append((grady_t_slice[y, x], grady_b_slice[y, x], gradx_l_slice[y, x], sum3, gradx_abs_start[y, x], gradx_abs_text[y, x], l_minus1[y, x]))
+            if sig_pix[y, x] == 0:
+              self.xy_bkg_t_pix += [img[y, x]-img[y+1, x]]
+              if img[y+1, x] != 0: self.xy_bkg_t_pix_rat += [img[y, x]/img[y+1, x]]
+              self.xy_bkg_t_pix_arb += [img[y, x]-2*img[y+1, x]]
+              self.xy_bkg_t_30.append(sum(img[y, xx]-img[y+1, xx] for xx in range(x+1, x+1+30))/30)
+              self.xy_bkg_t_quad_30.append(math.sqrt(sum((img[y, xx]-2*img[y+1, xx])**2 for xx in range(x+1, x+1+30))/30))
+              self.xy_bkg_t_abs_30.append(sum(abs(img[y, xx]-2*img[y+1, xx]) for xx in range(x+1, x+1+30))/30)
+              diff = [img[y, xx]-2*img[y+1, xx] for xx in range(x+1, x+1+30)]
+              diff.sort()
+              self.xy_bkg_t_quad_30_20.append(math.sqrt(sum(xx**2 for xx in diff[5:25])/20))
+              self.xy_bkg_t_abs_30_20.append(sum(abs(v) for v in diff[5:25])/20)
       return ys, xs
       #a
 
@@ -277,7 +420,6 @@ class Drop:
       if x0 == len(A):
         x0 -= 1
       return (max, x0+x_min, x1+x_min)
-
 
     def _detect_y(self, img, signal=[]):
       npix_sum = 25
@@ -528,7 +670,8 @@ if __name__ == '__main__':
   ##dropper.cuts = [20, 20, 34.1875, 238.1875, 19.189903]
   dropper.cuts = []
   #dropper.cuts = [25, 25, 34.1875, 238.1875, 19.189903, -20.4375]
-  dropper.cuts = [20, 20.1, 7.9375, 71.4375, 230.82812, 19.189903, -25.0625]
+  #dropper.cuts = [20, 20.1, 7.9375, 71.4375, 230.82812, 19.189903, -25.0625]
+  dropper.use_signal_x1 = True
   if len(sys.argv) == 1:
     GHP = 'Greater Healing Potion'
     GMP = 'Greater Mana Potion'
@@ -536,9 +679,9 @@ if __name__ == '__main__':
     SMP = 'Super Mana Potion'
     FRP = 'Full Rejuvenation Potion'
     RP = 'Rejuvenation Potion'
-    #ret = py_droprec(cv2.imread('../../502/screens/95621693075.png'), y0=300, y1=345, x0=275, x1=465, signal=[{'y': 4, 'x0': 10}, {'y': 22, 'x0': 62}])
-    ret = py_droprec(cv2.imread('../158458820669.png'), signal=[[145,245,361,'Martel De Fer','y'],[145,363,553,GHP,'w'],[145,555,745,GHP,'w'],[160,221,319,'Tusk Sword','g'],[160,321,526,FRP,'w'],[175,232,408,GMP,'w'],[190,222,351,'Studded Leather','b'],[205,226,381,SMP,'w'],[220,249,425,GMP,'w'],[235,176,366,GHP,'w'],[251,270,403,'Conquest Sword','y'],[268,207,397,GHP,'w']])
-    ret = py_droprec(cv2.imread('../../502/screens/94456900671.png'), signal=[[249,328,419,'Bone Wand','y'],[249,421,576,SMP,'w'],[249,578,783,FRP,'w'],[264,268,407,'Flawed Amethyst','w'],[264,409,574,RP,'w'],[279,307,476,SHP,'w'],[294,312,400,'Bone Shield','b'],[309,289,458,SHP,'w'],[324,326,491,RP,'w'],[339,244,434,GHP,'w'],[357,386,432,'Jewel','y'],[376,296,451,SMP,'w']])
+    #ret = py_droprec(cv2.imread('../../502/screens_1/95621693075.png'), y0=300, y1=345, x0=275, x1=465, signal=[[4+300, 10+275], [22+300, 62+275], [1+300, 1+275]])
+    #ret = py_droprec(cv2.imread('../158458820669.png'), signal=[[145,245,361,'Martel De Fer','y'],[145,363,553,GHP,'w'],[145,555,745,GHP,'w'],[160,221,319,'Tusk Sword','g'],[160,321,526,FRP,'w'],[175,232,408,GMP,'w'],[190,222,351,'Studded Leather','b'],[205,226,381,SMP,'w'],[220,249,425,GMP,'w'],[235,176,366,GHP,'w'],[251,270,403,'Conquest Sword','y'],[268,207,397,GHP,'w']])
+    ret = py_droprec(cv2.imread('../../502/screens_1/94456900671.png'), signal=[[249,328,419,'Bone Wand','y'],[249,421,576,SMP,'w'],[249,578,783,FRP,'w'],[264,268,407,'Flawed Amethyst','w'],[264,409,574,RP,'w'],[279,307,476,SHP,'w'],[294,312,400,'Bone Shield','b'],[309,289,458,SHP,'w'],[324,326,491,RP,'w'],[339,244,434,GHP,'w'],[357,386,432,'Jewel','y'],[376,296,451,SMP,'w']])
     print(ret)
   else:
     for img_name in list_images(sys.argv[1]):
