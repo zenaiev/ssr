@@ -11,6 +11,7 @@ import sys
 import os
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import random
 
 class Drop:
     def __init__(self):
@@ -24,6 +25,7 @@ class Drop:
       self.current_drop = []
       self.sig = []
       self.bkg = []
+      self.vars_title = []
       self.xy_sig = []
       self.xy_bkg = []
       self.xy_sig_t_pix = []
@@ -46,15 +48,26 @@ class Drop:
     
     def stats(self):
       if len(self.sig):
+        cuts = []
         print('{:20s}{:>18s}  {:>18s}  {:>5s} [{:>6s}]{:>8s}{:>8s}'.format('Variable', 'sig', 'bkg', 'cut', 'q', 'sig_egg', 'bkg_eff'))
         for i in range(len(self.sig[0])):
-          if i%3 == 0:
-            fig, axes = plt.subplots(3, 1, sharex=True, squeeze=True)
-          ax = axes[i%3]
-          #plt.subplots_adjust(hspace = 0.0, left = 0.06, right = 0.97)
-          self._plot('Var {}'.format(i), [v[i] for v in self.sig], [v[i] for v in self.bkg[:10000]], np.linspace(-255, 100, 100), [1.0, 0.90], ax, col=['b','g','r'][i%3])
-      plt.show(block=False)
-      cv2.waitKey()
+          if len(self.vars_title[i].split('[')) > 1:
+            if i%3 == 0:
+              fig, axes = plt.subplots(3, 1, sharex=True, squeeze=True)
+              fig.suptitle(self.vars_title[i].split('[')[0])
+              fig.canvas.set_window_title(self.vars_title[i].split('[')[0])
+              plt.subplots_adjust(hspace = 0.0, left = 0.01, right = 0.99)
+            ax = axes[i%3]
+          else:
+            fig = plt.figure(self.vars_title[i])
+            #print(fig, fig.axes)
+            ax = None
+          bkg = random.sample(self.bkg, 10000)
+          cuts.append(self._plot(self.vars_title[i], [v[i] for v in self.sig], [v[i] for v in bkg], np.linspace(-200, 50, 100), [1.0, 0.90], ax, col=['b','g','r'][i%3]))
+        print('cuts = {}'.format(cuts))
+        plt.show(block=False)
+        cv2.waitKey()
+      return
       if len(self.xy_bkg) == 0 and len(self.xy_sig) == 0:
         return
       ncuts = len(self.xy_bkg[0]) if len(self.xy_bkg) != 0 else len(self.xy_sig[0])
@@ -104,21 +117,32 @@ class Drop:
       #input("Press Enter to continue...")
 
     def _plot(self, label, sig, bkg, bins=None, qs=[0.90], ax=None, col=None):
-      print('{:20s}{:5.0f} [{:5.0f}{:5.0f}]  {:5.0f} [{:5.0f}{:5.0f}]'.format(label, sum(sig)/len(sig), min(sig), max(sig), sum(bkg)/len(bkg), min(bkg), max(bkg)), end='')
+      sig_mean,sig_min,sig_max = sum(sig)/len(sig), min(sig), max(sig)
+      sig_str = '{:5.0f} [{:5.0f}{:5.0f}]'.format(sig_mean,sig_min,sig_max)
+      bkg_mean,bkg_min,bkg_max = sum(bkg)/len(bkg), min(bkg), max(bkg)
+      bkg_str = '{:5.0f} [{:5.0f}{:5.0f}]'.format(bkg_mean,bkg_min,bkg_max)
+      print('{:20s}{}  {}'.format(label, sig_str, bkg_str), end='')
+      q_str = []
       for q in qs:
         c, sig_eff, bkg_eff= self._calc_sig_bkg_eff(sig, bkg, q)
-        print('  {:5.0f} [{:6.1f}]{:8.4f}{:8.4f}'.format(c, q, sig_eff, bkg_eff), end='')
+        q_str.append('  {:5.0f} [{:6.1f}]{:8.4f}{:8.4f}'.format(c, q, sig_eff, bkg_eff))
+        print(q_str[-1], end='')
       print()
+      #print(bins)
       #print('{}: sig mean[min,max] {.0f}[{}{}] min {}; bkg mean {}; eff q = {} c = {} sig {} bkg {}'.format(label, sum(sig)/len(sig), min(sig), sum(bkg)/len(bkg), q, c, sig_eff, bkg_eff))
       if ax is None:
-        ax = plt
+        #ax = plt
+        ax = plt.gca()
       #ax.figure(label)
       if bins is not None:
-        ax.hist(bkg, bins, alpha=0.5, density=True, label='bkg', color='k')
+        ax.hist(bkg, bins, alpha=0.5, density=True, label='bkg {:.0f}[{:.0f},{:.0f}]'.format(bkg_mean,bkg_min,bkg_max), color='k')
       else:
-        _,bins,_ = ax.hist(bkg, alpha=0.5, density=True, label='bkg', color=col)
-      ax.hist(sig, bins, alpha=0.5, density=True, label='sig', color=col)
-      ax.legend()
+        _,bins,_ = ax.hist(bkg, alpha=0.5, density=True, label='bkg {:.0f}[{:.0f},{:.0f}]'.format(bkg_mean,bkg_min,bkg_max), color=col)
+      ax.hist(sig, bins, alpha=0.5, density=True, label='sig {:.0f}[{:.0f},{:.0f}]'.format(sig_mean,sig_min,sig_max), color=col)
+      ax.legend(loc=2)
+      ax.text(0.0,0.45,'\n'.join(q_str),horizontalalignment='left', verticalalignment='top', transform = ax.transAxes)
+      ax.axes.get_yaxis().set_visible(False)
+      return sig_min
 
     def _calc_sig_bkg_eff(self, sig, bkg, q):
       if q == 1.0:
@@ -156,7 +180,7 @@ class Drop:
         #return []
         #ys = self._detect_y_new(img_gray, signal)
         #ys = self._detect_y(img_gray, signal)
-        #print(ys, ls, rs)
+        print(ys, ls, rs)
         #ls, rs = self._detect_x(img_gray, ys, signal)
         #print(ls, rs)
         drop = []
@@ -182,15 +206,21 @@ class Drop:
       assert x1 <= img.shape[1]
       img[y0:y1, x0:x1] = np.zeros(img[y0:y1, x0:x1].shape)
 
+    def _max_img_from_list(self, imgs):
+      img_max = imgs[0].copy()
+      for i in range(1, len(imgs)):
+        img_max = cv2.max(img_max, imgs[i])
+      return img_max
+
     def _boxes(self, img, signal=[]):
+      assert img.shape[2] == 3
       box_x = 31
       #box_x = 1
       n_box_x = 7
       box_y = 16
       #box_y = 1
-      mar = 4
+      #mar = 4
       t = cv2.filter2D(img, -1, np.matrix('1; -2'), anchor=(0,0))
-      #print(t[0:1, 0:1])
       b = cv2.filter2D(img, -1, np.matrix('-2; 1'), anchor=(0,0))
       l = cv2.filter2D(img, -1, np.matrix('1 -2'), anchor=(0,0))
       r = cv2.filter2D(img, -1, np.matrix('-2 1'), anchor=(0,0))
@@ -199,23 +229,39 @@ class Drop:
       la = np.absolute(l)*-1
       ra = np.absolute(r)*-1
       tsum = [cv2.filter2D(t, -1, np.matrix('1 '*box_x*i), anchor=(0,0))/(box_x*i) for i in range(1,n_box_x+1)]
-      tsum_max = tsum[0].copy()
-      for i in range(n_box_x-1):
-        tsum_max = cv2.max(tsum_max, tsum[1+i])
-      bsum = [cv2.filter2D(b, -1, np.matrix('1 '*box_x*i), anchor=(0,0))/(box_x*i) for i in range(1,n_box_x+1)]
+      tsum_max = self._max_img_from_list(tsum)
       tasum = [cv2.filter2D(ta, -1, np.matrix('1 '*box_x*i), anchor=(0,0))/(box_x*i) for i in range(1,n_box_x+1)]
+      tasum_max = self._max_img_from_list(tasum)
+      bsum = [cv2.filter2D(b, -1, np.matrix('1 '*box_x*i), anchor=(0,0))/(box_x*i) for i in range(1,n_box_x+1)]
+      bsum_max = self._max_img_from_list(bsum)
       basum = [cv2.filter2D(ba, -1, np.matrix('1 '*box_x*i), anchor=(0,0))/(box_x*i) for i in range(1,n_box_x+1)]
+      basum_max = self._max_img_from_list(basum)
       lsum = cv2.filter2D(l, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0))/(box_y)
       lasum = cv2.filter2D(la, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0))/(box_y)
+      dxa = np.absolute(cv2.filter2D(img, -1, np.matrix('1 -1'), anchor=(0,0)))
+      dya = np.absolute(cv2.filter2D(img, -1, np.matrix('1; -1'), anchor=(0,0)))
+      dxya = dxa[1:, :-1] + dya[1:, :-1]
+      assert box_y > (3+4)
+      dxyasum = [cv2.filter2D(dxya, -1, np.matrix(';'.join(['1 '*box_x*i]*(box_y-3-4))), anchor=(0,0))/(box_x*i*(box_y-3-4))-100 for i in range(1,n_box_x+1)]
+      dxyasum = [np.maximum(np.maximum(i[:, :, :1], i[:, :, 1:2]), i[:, :, 2:]) for i in dxyasum]
+      dxyasum_max = self._max_img_from_list(dxyasum)
+
+      self.vars_title += ['tsum_max'+'['+c+']' for c in 'bgr']
+      self.vars_title += ['tasum_max'+'['+c+']' for c in 'bgr']
+      self.vars_title += ['bsum_max'+'['+c+']' for c in 'bgr']
+      self.vars_title += ['basum_max'+'['+c+']' for c in 'bgr']
+      self.vars_title += ['lsum_max'+'['+c+']' for c in 'bgr']
+      self.vars_title += ['lasum_max'+'['+c+']' for c in 'bgr']
+      self.vars_title += ['dxyasum_max']
       img_vars = cv2.merge(
-        #tuple(i[:-box_y-1, 1:-box_x, c] for i in tsum for c in range(img.shape[2])) +
-        #tuple(i[:-box_y-1, 1:-box_x, c] for i in tasum for c in range(img.shape[2])) +
-        #tuple(i[box_y:-1, 1:-box_x, c] for i in bsum for c in range(img.shape[2])) +
-        #tuple(i[box_y:-1, 1:-box_x, c] for i in basum for c in range(img.shape[2])) +
-        #tuple(lsum[1:-box_y, :-box_x-1, c] for c in range(img.shape[2])) +
-        #tuple(lasum[1:-box_y, :-box_x-1, c] for c in range(img.shape[2])) +
-        #tuple(i[:-box_y-1, 1:-box_x, c] for i in tsum for c in range(img.shape[2])) +
+        () +
         tuple(tsum_max[:-box_y-1, 1:-box_x, c] for c in range(img.shape[2])) +
+        tuple(tasum_max[:-box_y-1, 1:-box_x, c] for c in range(img.shape[2])) +
+        tuple(bsum_max[box_y:-1, 1:-box_x, c] for c in range(img.shape[2])) +
+        tuple(basum_max[box_y:-1, 1:-box_x, c] for c in range(img.shape[2])) +
+        tuple(lsum[1:-box_y, :-box_x-1, c] for c in range(img.shape[2])) +
+        tuple(lasum[1:-box_y, :-box_x-1, c] for c in range(img.shape[2])) +
+        tuple((dxyasum_max[3:-box_y+3, 4:-box_x+4],)) +
       ())
       #print(img_vars[0:1, 0:1])
       #print(img.shape, img_vars.shape)
@@ -239,6 +285,19 @@ class Drop:
           for y in range(sig.shape[0]):
             if sig[y, x] == 0:
               self.bkg.append(img_vars[y, x])
+      else:
+        '''for s in signal:
+          y, x = s[0]-1, s[1]-1
+          print(img_vars[y, x])
+          print(self.cuts)
+          print(all(v >= c for v,c in zip(img_vars[y, x], self.cuts)))
+          cv2.waitKey()'''
+        for x in range(sig.shape[1]):
+          for y in range(sig.shape[0]):
+            if all(v >= (c-0.001) for v,c in zip(img_vars[y, x], self.cuts)):
+              sig[y, x] = 1
+              ys.append(y)
+              xs.append(x)
       return (ys, xs)
     
     def _detect_boxes(self, img, signal=[]):
@@ -597,7 +656,8 @@ class Drop:
 
 dropper = Drop()
 
-def py_droprec(img, timestamp=0, y0=20, y1=570, x0=None, x1=None, signal=[]):
+#def py_droprec(img, timestamp=0, y0=20, y1=570, x0=None, x1=None, signal=[]):
+def py_droprec(img, timestamp=0, y0=None, y1=None, x0=None, x1=None, signal=[]):
   print('SZ droprec timestamp = {}, crop = [{}:{}, {}:{}], signal = {}'.format(timestamp, y0, y1, x0, x1, signal))
   signal_copy = signal.copy()
   for s in signal_copy:
@@ -687,12 +747,9 @@ if __name__ == '__main__':
   '../../502/screens/96914395937.png'
   '../../502/screens/96011475271.png'
   '../../502/screens/97078835945.png'
-  # remove 141, 142
-  ##dropper.cuts = [20, 20, 34.1875, 238.1875, 19.189903]
   dropper.cuts = []
-  #dropper.cuts = [25, 25, 34.1875, 238.1875, 19.189903, -20.4375]
-  #dropper.cuts = [20, 20.1, 7.9375, 71.4375, 230.82812, 19.189903, -25.0625]
-  dropper.use_signal_x1 = True
+  dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -5.096774, -4.1827955, -5.419355, -21.655914, -20.903225, -22.838709, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, -19.674728]
+  #dropper.use_signal_x1 = True
   if len(sys.argv) == 1:
     GHP = 'Greater Healing Potion'
     GMP = 'Greater Mana Potion'
