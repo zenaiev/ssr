@@ -2,6 +2,7 @@ import pytesseract
 import numpy as np
 import imutils
 import cv2
+#from cv2 import cv2
 import random
 from imutils.object_detection import non_max_suppression
 import time
@@ -25,7 +26,13 @@ class Drop:
       self.current_drop = []
       self.sig = []
       self.bkg = []
+      self.sig_x1 = []
+      self.bkg_x1 = []
+      self.cuts = []
+      self.cuts_x1 = []
+      self.flag_train = False
       self.vars_title = []
+      self.vars_title_x1 = []
       self.xy_sig = []
       self.xy_bkg = []
       self.xy_sig_t_pix = []
@@ -48,23 +55,39 @@ class Drop:
     
     def stats(self):
       if len(self.sig):
-        cuts = []
+        cuts_xy, cuts_x1 = [], []
         print('{:20s}{:>18s}  {:>18s}  {:>5s} [{:>6s}]{:>8s}{:>8s}'.format('Variable', 'sig', 'bkg', 'cut', 'q', 'sig_egg', 'bkg_eff'))
-        for i in range(len(self.sig[0])):
+        for sig,bkg,title,cuts in zip([self.sig, self.sig_x1], [self.bkg, self.bkg_x1], [self.vars_title, self.vars_title_x1], [cuts_xy, cuts_x1]):
+          for i in range(len(sig[0])):
+            if len(title[i].split('[')) > 1:
+              if i%3 == 0:
+                fig, axes = plt.subplots(3, 1, sharex=True, squeeze=True)
+                fig.suptitle(title[i].split('[')[0])
+                fig.canvas.set_window_title(title[i].split('[')[0])
+                plt.subplots_adjust(hspace = 0.0, left = 0.01, right = 0.99)
+              ax = axes[i%3]
+            else:
+              fig = plt.figure(title[i])
+              ax = None
+            bkg_sample = random.sample(bkg, min(10000, len(bkg)))
+            cuts.append(self._plot(title[i], [v[i] for v in sig], [v[i] for v in bkg_sample], np.linspace(0, 300, 100), [1.0, 0.90], ax, col=['b','g','r'][i%3]))
+        print('cuts = {}'.format(cuts_xy))
+        print('cuts_x1 = {}'.format(cuts_x1))
+        '''for i in range(len(self.sig_x1[0])):
+          tit = self.vars_title[i+len(self.sig[0])]
           if len(self.vars_title[i].split('[')) > 1:
             if i%3 == 0:
               fig, axes = plt.subplots(3, 1, sharex=True, squeeze=True)
-              fig.suptitle(self.vars_title[i].split('[')[0])
-              fig.canvas.set_window_title(self.vars_title[i].split('[')[0])
+              fig.suptitle(tit.split('[')[0])
+              fig.canvas.set_window_title(tit.split('[')[0])
               plt.subplots_adjust(hspace = 0.0, left = 0.01, right = 0.99)
             ax = axes[i%3]
           else:
-            fig = plt.figure(self.vars_title[i])
-            #print(fig, fig.axes)
+            fig = plt.figure(tit)
             ax = None
-          bkg = random.sample(self.bkg, 10000)
-          cuts.append(self._plot(self.vars_title[i], [v[i] for v in self.sig], [v[i] for v in bkg], np.linspace(-200, 50, 100), [1.0, 0.90], ax, col=['b','g','r'][i%3]))
-        print('cuts = {}'.format(cuts))
+          bkg = random.sample(self.bkg_x1, min(10000, len(self.bkg_x1)))
+          cuts.append(self._plot(tit, [v[i] for v in self.sig_x1], [v[i] for v in bkg], np.linspace(-200, 50, 100), [1.0, 0.90], ax, col=['b','g','r'][i%3]))'''
+#        print('cuts = {}'.format(cuts))
         plt.show(block=False)
         cv2.waitKey()
       return
@@ -117,6 +140,7 @@ class Drop:
       #input("Press Enter to continue...")
 
     def _plot(self, label, sig, bkg, bins=None, qs=[0.90], ax=None, col=None):
+      #print(len(sig), len(bkg))
       sig_mean,sig_min,sig_max = sum(sig)/len(sig), min(sig), max(sig)
       sig_str = '{:5.0f} [{:5.0f}{:5.0f}]'.format(sig_mean,sig_min,sig_max)
       bkg_mean,bkg_min,bkg_max = sum(bkg)/len(bkg), min(bkg), max(bkg)
@@ -134,11 +158,12 @@ class Drop:
         #ax = plt
         ax = plt.gca()
       #ax.figure(label)
+      bins = np.linspace(min(sig_min, bkg_min), max(sig_max, bkg_max), 100)
       if bins is not None:
-        ax.hist(bkg, bins, alpha=0.5, density=True, label='bkg {:.0f}[{:.0f},{:.0f}]'.format(bkg_mean,bkg_min,bkg_max), color='k')
+        ax.hist(bkg, bins, alpha=0.5, density=True, label='bkg({}) {:.0f}[{:.0f},{:.0f}]'.format(len(bkg), bkg_mean,bkg_min,bkg_max), color='k')
       else:
-        _,bins,_ = ax.hist(bkg, alpha=0.5, density=True, label='bkg {:.0f}[{:.0f},{:.0f}]'.format(bkg_mean,bkg_min,bkg_max), color=col)
-      ax.hist(sig, bins, alpha=0.5, density=True, label='sig {:.0f}[{:.0f},{:.0f}]'.format(sig_mean,sig_min,sig_max), color=col)
+        _,bins,_ = ax.hist(bkg, alpha=0.5, density=True, label='bkg({}) {:.0f}[{:.0f},{:.0f}]'.format(len(bkg), bkg_mean,bkg_min,bkg_max), color=col)
+      ax.hist(sig, bins, alpha=0.5, density=True, label='sig({}) {:.0f}[{:.0f},{:.0f}]'.format(len(sig), sig_mean,sig_min,sig_max), color=col)
       ax.legend(loc=2)
       ax.text(0.0,0.45,'\n'.join(q_str),horizontalalignment='left', verticalalignment='top', transform = ax.transAxes)
       ax.axes.get_yaxis().set_visible(False)
@@ -172,11 +197,12 @@ class Drop:
         img_gray = np.float32(img_gray)
         #ys, ls = self._detect_boxes(img_gray, signal=signal)
         img_float = np.float32(img)
-        ys, ls = self._boxes(img_float, signal=signal)
+        ys, ls, rs = self._boxes(img_float, signal=signal)
         #a
         ys = [y+1 for y in ys]
         ls = [y+1 for y in ls]
-        rs = [x+32 for x in ls]
+        #rs = [x+32 for x in ls]
+        rs = [x for x in rs]
         #return []
         #ys = self._detect_y_new(img_gray, signal)
         #ys = self._detect_y(img_gray, signal)
@@ -215,11 +241,12 @@ class Drop:
     def _boxes(self, img, signal=[]):
       assert img.shape[2] == 3
       box_x = 31
-      #box_x = 1
       n_box_x = 7
+      #n_box_x = 1
       box_y = 16
-      #box_y = 1
-      #mar = 4
+      #box_y = 6
+      mar_l, mar_r, mar_t, mar_b = 4, 4, 3, 5
+      #mar_l, mar_r, mar_t, mar_b = 2, 2, 2, 2
       t = cv2.filter2D(img, -1, np.matrix('1; -2'), anchor=(0,0))
       b = cv2.filter2D(img, -1, np.matrix('-2; 1'), anchor=(0,0))
       l = cv2.filter2D(img, -1, np.matrix('1 -2'), anchor=(0,0))
@@ -238,21 +265,40 @@ class Drop:
       basum_max = self._max_img_from_list(basum)
       lsum = cv2.filter2D(l, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0))/(box_y)
       lasum = cv2.filter2D(la, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0))/(box_y)
+      rsum = cv2.filter2D(r, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0))/(box_y)
+      rasum = cv2.filter2D(ra, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0))/(box_y)
+      rasumtext = cv2.filter2D(ra, -1, np.matrix(';'.join('0'*mar_t)+';'+';'.join('1'*(box_y-mar_b-mar_t))+';'+';'.join('0'*mar_b)), anchor=(0,0))/(box_y)
+      rasumtext = np.maximum(np.maximum(rasumtext[:, :, :1], rasumtext[:, :, 1:2]), rasumtext[:, :, 2:])
       dxa = np.absolute(cv2.filter2D(img, -1, np.matrix('1 -1'), anchor=(0,0)))
       dya = np.absolute(cv2.filter2D(img, -1, np.matrix('1; -1'), anchor=(0,0)))
-      dxya = dxa[1:, :-1] + dya[1:, :-1]
-      assert box_y > (3+4)
-      dxyasum = [cv2.filter2D(dxya, -1, np.matrix(';'.join(['1 '*box_x*i]*(box_y-3-4))), anchor=(0,0))/(box_x*i*(box_y-3-4))-100 for i in range(1,n_box_x+1)]
-      dxyasum = [np.maximum(np.maximum(i[:, :, :1], i[:, :, 1:2]), i[:, :, 2:]) for i in dxyasum]
-      dxyasum_max = self._max_img_from_list(dxyasum)
-
+      dxya = dxa + dya
+      assert box_y > (mar_b+mar_t+1)
+      assert box_x > (mar_l+mar_r+1)
+      boxsum = [cv2.filter2D(dxya, -1, np.matrix(';'.join(['1 '*(box_x-mar_l-1)*i]*(box_y-mar_t-mar_b-1))), anchor=(0,0))/(2*(box_x-mar_l-1)*i*(box_y-mar_b-mar_t-1)) for i in range(1,n_box_x+1)]
+      maxrgb = lambda img: np.maximum(np.maximum(img[:, :, :1], img[:, :, 1:2]), img[:, :, 2:])
+      boxsum = [maxrgb(i) for i in boxsum]
+      boxsum_max = self._max_img_from_list(boxsum)
+      marlsum = maxrgb(cv2.filter2D(dxya, -1, np.matrix(';'.join(['1 '*(mar_l-1)]*(box_y-1))), anchor=(0,0))/(2*(mar_l-1)*(box_y-1)))
+      #print(';'.join(['1 '*(mar_r-1)]*(box_y-1)))
+      #marrsum = cv2.filter2D(dxya, -1, np.matrix(';'.join(['1 '*(mar_r-1)]*(box_y-1))), anchor=(0,2))/(2*(mar_r-1)*(box_y-1))
+      #marrsum = cv2.filter2D(dxya, -1, np.matrix(';'.join(['1 '*(mar_r-1)]*(box_y-1))), anchor=(1,0))/(2*(mar_r-1)*(box_y-1))
+      marrsum = cv2.filter2D(dxya, -1, np.matrix(';'.join(['1 '*(mar_r-1)]*(box_y-1))), anchor=(0,0))/(2*(mar_r-1)*(box_y-1))
+      num_rows, num_cols = marrsum.shape[:2]
+      translation_matrix = np.float32([ [1,0,mar_r-1], [0,1,0] ])
+      marrsum = cv2.warpAffine(marrsum, translation_matrix, (num_cols,num_rows))
+      marrsum = maxrgb(marrsum)
+      #print('marrsum: {}'.format(marrsum[247:252, 417:422]))
+      #print('marrsum: {}'.format(marrsum[249, 419]))
+      #a
+      
       self.vars_title += ['tsum_max'+'['+c+']' for c in 'bgr']
       self.vars_title += ['tasum_max'+'['+c+']' for c in 'bgr']
       self.vars_title += ['bsum_max'+'['+c+']' for c in 'bgr']
       self.vars_title += ['basum_max'+'['+c+']' for c in 'bgr']
-      self.vars_title += ['lsum_max'+'['+c+']' for c in 'bgr']
-      self.vars_title += ['lasum_max'+'['+c+']' for c in 'bgr']
-      self.vars_title += ['dxyasum_max']
+      self.vars_title += ['lsum'+'['+c+']' for c in 'bgr']
+      self.vars_title += ['lasum'+'['+c+']' for c in 'bgr']
+      self.vars_title += ['boxsum_max']
+      self.vars_title += ['marlsum']
       img_vars = cv2.merge(
         () +
         tuple(tsum_max[:-box_y-1, 1:-box_x, c] for c in range(img.shape[2])) +
@@ -261,45 +307,103 @@ class Drop:
         tuple(basum_max[box_y:-1, 1:-box_x, c] for c in range(img.shape[2])) +
         tuple(lsum[1:-box_y, :-box_x-1, c] for c in range(img.shape[2])) +
         tuple(lasum[1:-box_y, :-box_x-1, c] for c in range(img.shape[2])) +
-        tuple((dxyasum_max[3:-box_y+3, 4:-box_x+4],)) +
+        tuple((boxsum_max[mar_t+1:-box_y+mar_t, mar_l+1:-box_x+mar_l],)) +
+        tuple((marlsum[1:-box_y, 1:-box_x]*-1,)) +
       ())
-      #print(img_vars[0:1, 0:1])
-      #print(img.shape, img_vars.shape)
+      #print(img[0:3, 0:3])
+      self.vars_title_x1 += ['rsum'+'['+c+']' for c in 'bgr']
+      self.vars_title_x1 += ['rasum'+'['+c+']' for c in 'bgr']
+      self.vars_title_x1 += ['marrsum']
+      img_vars_x1 = cv2.merge(
+        () +
+        tuple(rsum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
+        tuple(rasum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
+        tuple((marrsum[1:-box_y, 0:-1]*-1,)) +
+      ())
       assert img_vars.shape[0]+box_y+1 == img.shape[0] and img_vars.shape[1]+box_x+1 == img.shape[1]
       #assert img_vars.shape[2] == 18
-      ys, xs = [], []
+      ys, xs, x1s = [], [], []
       sig = np.zeros(img_vars.shape[0:2])
-      if self.cuts is None or len(self.cuts) == 0:
-        print_str = '{:4.0f}{:4.0f}{:4.0f}  {:25s}{:3s}' + '{:5.0f}'*img_vars.shape[2]
-        print(print_str.replace('.0f}', 's}').replace('{:', '{:>').format('y','x0','x1','Drop','c',*('v'+str(i) for i in range(img_vars.shape[2]))))
+      if self.flag_train:
+        print_str = '{:4.0f}{:4.0f}{:4.0f}  {:25s}{:3s}' + '{:5.0f}'*len(self.vars_title) + '{:5.0f}'*len(self.vars_title_x1)
+        print('Variables: {}'.format({iv: v for iv,v in enumerate(self.vars_title + self.vars_title_x1)}))
+        print(print_str.replace('.0f}', 's}').replace('{:', '{:>').format('y','x0','x1','Drop','c',*('v'+str(i) for i in range(len(self.vars_title) + len(self.vars_title_x1)))))
         for s in signal:
           #print(s)
           assert s[0] > 0 and s[1] > 0
-          ar = tuple(s) + tuple(img_vars[s[0]-1, s[1]-1])
-          print(print_str.format(*ar))
-          self.sig.append(img_vars[s[0]-1, s[1]-1])
-          sig[s[0]-1, s[1]-1]
-          ys.append(s[0]-1)
-          xs.append(s[1]-1)
+          y, x, x1 = s[0]-1, s[1]-1, s[2]
+          if 0:
+            my_tsum = sum(img[y, xx]-2*img[y+1, xx] for xx in range(x+1, x+1+box_x))/box_x
+            my_tasum = -1*sum(abs(img[y, xx]-2*img[y+1, xx]) for xx in range(x+1, x+1+box_x))/box_x
+            my_bsum = sum(-2*img[y+box_y, xx]+img[y+box_y+1, xx] for xx in range(x+1, x+1+box_x))/box_x
+            my_basum = -1*sum(abs(2*img[y+box_y, xx]-img[y+box_y+1, xx]) for xx in range(x+1, x+1+box_x))/box_x
+            my_lsum = sum(img[yy, x]-2*img[yy, x+1] for yy in range(y+1, y+1+box_y))/box_y
+            my_lasum = -1*sum(abs(img[yy, x]-2*img[yy, x+1]) for yy in range(y+1, y+1+box_y))/box_y
+            my_boxsum = max(self._calc_adxdysum(img, x+1+mar_l, x+box_x, y+1+mar_t, y+box_y-mar_b))
+            my_marlsum = max(self._calc_adxdysum(img, x+1, x+mar_l, y+1, y+box_y))*-1
+            my_vars = sum((list(img) for img in (my_tsum, my_tasum, my_bsum, my_basum, my_lsum, my_lasum, [my_boxsum], [my_marlsum])), [])
+            my_diff = [a-b for a,b in zip(my_vars, img_vars[y, x])]
+            if not all(abs(d) < 1e-5 for d in my_diff):
+              print('img {}'.format(img_vars[y, x]))
+              print('my {}'.format(my_vars))
+              print('diff (len diff {}): {}'.format(len(my_vars)-len(img_vars[y, x]), my_diff))
+              assert 0
+          print(print_str.format(*s, *img_vars[y, x], *img_vars_x1[y, x]))
+          self.sig.append(img_vars[y, x])
+          sig[y, x]
+          ys.append(y)
+          xs.append(x)
+          x1s.append(x1)
+          for x1_scan in range(x+box_x, img_vars_x1.shape[1]):
+            if x1_scan == x1:
+              if 0:
+                my_rsum = sum(-2*img[yy, x1]+img[yy, x1+1] for yy in range(y+1, y+1+box_y))/box_y
+                my_rasum = -1*sum(abs(-2*img[yy, x1]+img[yy, x1+1]) for yy in range(y+1, y+1+box_y))/box_y
+                my_marrsum = max(self._calc_adxdysum(img, x1-mar_r+1, x1, y+1, y+box_y))*-1
+                #print(self._calc_adxdysum(img, 419, 420, 249, 254))
+                my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum])), [])
+                my_diff = [a-b for a,b in zip(my_vars, img_vars_x1[y, x1])]
+                if not all(abs(d) < 1e-5 for d in my_diff):
+                  print('img {}'.format(img_vars_x1[y, x1]))
+                  print('my {}'.format(my_vars))
+                  print('diff (len diff {}): {}'.format(len(my_vars)-len(img_vars_x1[y, x1]), my_diff))
+                  assert 0
+              self.sig_x1.append(img_vars_x1[y, x1_scan])
+            else:
+              self.bkg_x1.append(img_vars_x1[y, x1_scan])
         for x in range(sig.shape[1]):
           for y in range(sig.shape[0]):
             if sig[y, x] == 0:
               self.bkg.append(img_vars[y, x])
       else:
-        '''for s in signal:
-          y, x = s[0]-1, s[1]-1
-          print(img_vars[y, x])
-          print(self.cuts)
-          print(all(v >= c for v,c in zip(img_vars[y, x], self.cuts)))
-          cv2.waitKey()'''
-        for x in range(sig.shape[1]):
-          for y in range(sig.shape[0]):
-            if all(v >= (c-0.001) for v,c in zip(img_vars[y, x], self.cuts)):
-              sig[y, x] = 1
-              ys.append(y)
-              xs.append(x)
-      return (ys, xs)
+        for y in range(sig.shape[0]-box_y):
+          x1_last = -1
+          for x in range(sig.shape[1]-box_x):
+            if x < x1_last:
+              continue
+            if all(v >= (c-1e-5) for v,c in zip(img_vars[y, x], self.cuts)):
+              print('x,y {} {}'.format(x, y))
+              for x1 in range(x+box_x, sig.shape[1]):
+                #print('x1 {} vars {} cut {} -> {}'.format(x1, img_vars_x1[y,x1], self.cuts_x1, all(v >= (c-0.001) for v,c in zip(img_vars_x1[y, x1], self.cuts_x1))))
+                if all(v >= (c-1e-5) for v,c in zip(img_vars_x1[y, x1], self.cuts_x1)):
+                  x1s.append(x1)
+                  sig[y, x] = 1
+                  ys.append(y)
+                  xs.append(x)
+                  x1_last = x1
+                  #cv2.waitKey()
+                  break
+      return (ys, xs, x1s)
     
+    def _calc_adxdysum(self, img, l, r, t, b):
+      #print(l, r, t, b, r-l, b-t)
+      assert r>=l and b>=t
+      ret = []
+      for c in range(img.shape[2]):
+        #print([(abs(img[y,x,c]-img[y,x+1,c]),abs(img[y,x,c]-img[y+1,x,c])) for x in range(l,r) for y in range(t,b)])
+        ret.append(sum(abs(img[y,x,c]-img[y,x+1,c])+abs(img[y,x,c]-img[y+1,x,c]) for x in range(l,r) for y in range(t,b))/(2*(r-l)*(b-t)))
+      return ret
+
     def _detect_boxes(self, img, signal=[]):
       #print('img.shape: {}', img.shape)
       len_x = 30
@@ -748,8 +852,10 @@ if __name__ == '__main__':
   '../../502/screens/96011475271.png'
   '../../502/screens/97078835945.png'
   dropper.cuts = []
-  dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -5.096774, -4.1827955, -5.419355, -21.655914, -20.903225, -22.838709, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, -19.674728]
-  #dropper.use_signal_x1 = True
+  dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -5.096774, -4.1827955, -5.419355, -21.655914, -20.903225, -22.838709, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 44.62088, -19.088888]
+  #dropper.cuts_x1 = [-9.1875, -12.9375, -12.875, -32.25, -37.25, -44.0625, -20.25]
+  dropper.cuts_x1 = [-9.1875, -12.9375, -12.875, -32.25, -37.25, -44.0625, -16.022223]
+  dropper.flag_train = 0
   if len(sys.argv) == 1:
     GHP = 'Greater Healing Potion'
     GMP = 'Greater Mana Potion'
