@@ -37,28 +37,33 @@ class Drop:
       if self.flag_train:
         cuts_xy, cuts_x1 = [], []
         print('{:20s}{:>18s}  {:>18s}  {:>5s} [{:>6s}]{:>8s}{:>8s}'.format('Variable', 'sig', 'bkg', 'cut', 'q', 'sig_egg', 'bkg_eff'))
+        nchannels = 4
         for sig,bkg,title,cuts in zip([self.sig, self.sig_x1], [self.bkg, self.bkg_x1], [self.vars_title, self.vars_title_x1], [cuts_xy, cuts_x1]):
-          i3_last = 0
+          icomb_last = 0
           for i in range(len(sig[0])):
+            delta_i = i-icomb_last
             if len(title[i].split('[')) > 1:
-              if (i-i3_last)%3 == 0:
-                fig, axes = plt.subplots(3, 1, sharex=True, squeeze=True)
+              if delta_i%nchannels == 0:
+                fig, axes = plt.subplots(nchannels, 1, sharex=True, squeeze=True)
                 fig.suptitle(title[i].split('[')[0])
                 fig.canvas.set_window_title(title[i].split('[')[0])
                 plt.subplots_adjust(hspace = 0.0, left = 0.01, right = 0.99)
-              ax = axes[(i-i3_last)%3]
-              if (i-i3_last)%3 == 2:
+                bins = None
+              ax = axes[delta_i%nchannels]
+              if delta_i%nchannels == nchannels-1:
                 store = title[i].split('[')[0]
-                i3_last = i+1
+                icomb_last = i+1
               else:
                 store = None
             else:
+              bins = None
               fig = plt.figure(title[i])
               ax = None
               store = title[i]
-              i3_last = i+1
+              icomb_last = i+1
             bkg_sample = random.sample(bkg, min(10000, len(bkg)))
-            cuts.append(self._plot(title[i], [v[i] for v in sig], [v[i] for v in bkg_sample], np.linspace(0, 300, 100), [1.0, 0.90], ax, col=['b','g','r'][(i-i3_last)%3], store=store))
+            cut, bins = self._plot(title[i], [v[i] for v in sig], [v[i] for v in bkg_sample], bins, [1.0, 0.90], ax, col=['b','g','r', 'magenta'][delta_i%nchannels], store=store)
+            cuts.append(cut)
         print('dropper.cuts = {}'.format(cuts_xy))
         print('dropper.cuts_x1 = {}'.format(cuts_x1))
         plt.show(block=False)
@@ -81,23 +86,22 @@ class Drop:
         q_str.append('  {:5.0f} [{:6.1f}]{:8.4f}{:8.4f}'.format(c, q, sig_eff, bkg_eff))
         print(q_str[-1], end='')
       print()
-      #print(bins)
       if ax is None:
         #ax = plt
         ax = plt.gca()
-      bins = np.linspace(min(sig_min, bkg_min), max(sig_max, bkg_max), 100)
-      if bins is not None:
-        ax.hist(bkg, bins, alpha=0.5, density=True, label='bkg({}) {:.0f}[{:.0f},{:.0f}]'.format(len(bkg), bkg_mean,bkg_min,bkg_max), color='k')
-      else:
-        _,bins,_ = ax.hist(bkg, alpha=0.5, density=True, label='bkg({}) {:.0f}[{:.0f},{:.0f}]'.format(len(bkg), bkg_mean,bkg_min,bkg_max), color=col)
+      if bins is None:
+        bins = np.linspace(min(sig_min, bkg_min), max(sig_max, bkg_max), 100)
+      ax.hist(bkg, bins, alpha=0.5, density=True, label='bkg({}) {:.0f}[{:.0f},{:.0f}]'.format(len(bkg), bkg_mean,bkg_min,bkg_max), color='k')
       ax.hist(sig, bins, alpha=0.5, density=True, label='sig({}) {:.0f}[{:.0f},{:.0f}]'.format(len(sig), sig_mean,sig_min,sig_max), color=col)
       ax.legend(loc=2)
-      ax.text(0.0,0.45,'\n'.join(q_str),horizontalalignment='left', verticalalignment='top', transform = ax.transAxes)
+      ax.text(0.0,0.35,'\n'.join(q_str),horizontalalignment='left', verticalalignment='top', transform = ax.transAxes)
       ax.axes.get_yaxis().set_visible(False)
       if store is not None:
-        plt.savefig('vars/{}.pdf'.format(store))
-        plt.savefig('vars/{}.png'.format(store))
-      return sig_min
+        if not os.path.isdir('plots'):
+          os.mkdir('plots')
+        plt.savefig('plots/{}.pdf'.format(store))
+        plt.savefig('plots/{}.png'.format(store))
+      return sig_min, bins
 
     def _calc_sig_bkg_eff(self, sig, bkg, q):
       if q == 1.0:
@@ -153,9 +157,11 @@ class Drop:
         img_max = cv2.max(img_max, imgs[i])
       return img_max
 
-    def _boxes(self, img, signal=[]):
-      #print(img[0,0])
-      assert img.shape[2] == 3 # bgr
+    def _boxes(self, img_bgr, signal=[]):
+      img = cv2.merge((*cv2.split(img_bgr), np.sum(img_bgr, axis=2)/3))
+      channels = 'bgrv'
+      #print(img[0:2,0:2])
+      assert img.shape[2] == 4 # bgr+val
       box_x = 31
       n_box_x = 7
       if self.flag_mycheck:
@@ -201,22 +207,24 @@ class Drop:
       assert box_y > (mar_b+mar_t+1)
       assert box_x > (mar_l+mar_r+1)
       boxsum = [cv2.filter2D(dxya, -1, np.matrix(';'.join(['1 '*(box_x-mar_l-1)*i]*(box_y-mar_t-mar_b-1))), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(2*(box_x-mar_l-1)*i*(box_y-mar_b-mar_t-1)) for i in range(1,n_box_x+1)]
-      maxrgb = lambda img: np.maximum(np.maximum(img[:, :, :1], img[:, :, 1:2]), img[:, :, 2:])
-      boxsum = [maxrgb(i) for i in boxsum]
+      #maxrgb = lambda img: np.maximum(np.maximum(img[:, :, :1], img[:, :, 1:2]), img[:, :, 2:])
+      #maxrgbv = lambda img: np.maximum(np.maximum(np.maximum(img[:, :, :1], img[:, :, 1:2]), img[:, :, 2:3]), img[:, :, 3:])
+      maxrgbv = lambda img: np.amax(img, axis=2)
+      boxsum = [maxrgbv(i) for i in boxsum]
       boxsum_max = self._max_img_from_list(boxsum)
-      marlsum = maxrgb(cv2.filter2D(dxya, -1, np.matrix(';'.join(['1 '*(mar_l-1)]*(box_y-1))), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(2*(mar_l-1)*(box_y-1)))
+      marlsum = maxrgbv(cv2.filter2D(dxya, -1, np.matrix(';'.join(['1 '*(mar_l-1)]*(box_y-1))), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(2*(mar_l-1)*(box_y-1)))
       marrsum = cv2.filter2D(dxya, -1, np.matrix(';'.join(['1 '*(mar_r-1)]*(box_y-1))), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(2*(mar_r-1)*(box_y-1))
       num_rows, num_cols = marrsum.shape[:2]
       translation_matrix = np.float32([ [1,0,mar_r-1], [0,1,0] ])
       marrsum = cv2.warpAffine(marrsum, translation_matrix, (num_cols,num_rows))
-      marrsum = maxrgb(marrsum)
+      marrsum = maxrgbv(marrsum)
       if len(self.vars_title) == 0:
-        self.vars_title += ['tsum_max'+'['+c+']' for c in 'bgr']
-        self.vars_title += ['tasum_max'+'['+c+']' for c in 'bgr']
-        self.vars_title += ['bsum_max'+'['+c+']' for c in 'bgr']
-        self.vars_title += ['basum_max'+'['+c+']' for c in 'bgr']
-        self.vars_title += ['lsum'+'['+c+']' for c in 'bgr']
-        self.vars_title += ['lasum'+'['+c+']' for c in 'bgr']
+        self.vars_title += ['tsum_max'+'['+c+']' for c in channels]
+        self.vars_title += ['tasum_max'+'['+c+']' for c in channels]
+        self.vars_title += ['bsum_max'+'['+c+']' for c in channels]
+        self.vars_title += ['basum_max'+'['+c+']' for c in channels]
+        self.vars_title += ['lsum'+'['+c+']' for c in channels]
+        self.vars_title += ['lasum'+'['+c+']' for c in channels]
         self.vars_title += ['boxsum_max']
         self.vars_title += ['marlsum']
       img_vars = cv2.merge(
@@ -232,8 +240,8 @@ class Drop:
       ())
       #print(img[0:3, 0:3])
       if len(self.vars_title_x1) == 0:
-        self.vars_title_x1 += ['rsum'+'['+c+']' for c in 'bgr']
-        self.vars_title_x1 += ['rasum'+'['+c+']' for c in 'bgr']
+        self.vars_title_x1 += ['rsum'+'['+c+']' for c in channels]
+        self.vars_title_x1 += ['rasum'+'['+c+']' for c in channels]
         self.vars_title_x1 += ['marrsum']
         #self.vars_title_x1 += ['r0sum']
         #self.vars_title_x1 += ['r0sum'+'['+c+']' for c in 'bgr']
@@ -284,7 +292,7 @@ class Drop:
             if not all(abs(d) < 1e-5 for d in my_diff):
               print('img {}'.format(img_vars[y, x]))
               print('my {}'.format(my_vars))
-              print('diff (len diff {}): {}'.format(len(my_vars)-len(img_vars[y, x]), my_diff))
+              print('diff (len diff {}-{}={}): {}'.format(len(my_vars), len(img_vars[y, x]), len(my_vars)-len(img_vars[y, x]), my_diff))
               assert 0
           print(print_str.format(*s, *img_vars[y, x], *img_vars_x1[y, x1]))
           self.sig.append(img_vars[y, x])
@@ -553,8 +561,8 @@ if __name__ == '__main__':
   #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, 17.5, 26.0, 30.6875]
   #dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -7.2645164, -6.0903225, -8.858065, -21.941935, -22.754839, -26.393549, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 39.403847, -19.088888]
   #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, 1.0]
-  dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -7.2645164, -6.0903225, -8.858065, -21.941935, -22.754839, -26.393549, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 39.403847, -19.088888]
-  dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15]
+  dropper.cuts = [-7.16129, -7.0, -10.4838705, -6.8817225, -38.83871, -38.451614, -36.322582, -36.881725, -7.2645164, -6.0903225, -8.858065, -7.4043007, -21.941935, -22.754839, -26.393549, -21.632257, -39.5, -30.375, -22.625, -30.145834, -42.0, -33.625, -35.5, -32.14583, 39.403847, -19.088888]
+  dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -15.124999, -32.25, -37.25, -44.0625, -36.812496, -16.15]
   dropper.flag_train = 0
   dropper.flag_mycheck = 0
   if len(sys.argv) == 1:
