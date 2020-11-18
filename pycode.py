@@ -196,6 +196,10 @@ class Drop:
       lsum = cv2.filter2D(l, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
       lasum = cv2.filter2D(la, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
       rsum = cv2.filter2D(r, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
+      rsumrat_denom = cv2.filter2D(img[:, 1:], -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)
+      rsumrat_denom[np.where(rsumrat_denom == 0)] = 1
+      rsumrat = rsum[:, :-1]/rsumrat_denom*box_y*100
+      rsumrat[np.where(np.isinf(img))] = -255
       r0sum = cv2.filter2D(r0, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)
       rnsum = cv2.filter2D(img, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
       rasum = cv2.filter2D(ra, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
@@ -243,6 +247,7 @@ class Drop:
         self.vars_title_x1 += ['rsum'+'['+c+']' for c in channels]
         self.vars_title_x1 += ['rasum'+'['+c+']' for c in channels]
         self.vars_title_x1 += ['marrsum']
+        self.vars_title_x1 += ['rsumrat'+'['+c+']' for c in channels]
         #self.vars_title_x1 += ['r0sum']
         #self.vars_title_x1 += ['r0sum'+'['+c+']' for c in 'bgr']
         #self.vars_title_x1 += ['rnsum'+'['+c+']' for c in 'bgr']
@@ -256,6 +261,7 @@ class Drop:
         tuple(rsum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
         tuple(rasum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
         tuple((marrsum[1:-box_y, 0:-1]*-1,)) +
+        tuple(rsumrat[1:-box_y, :, c] for c in range(img.shape[2])) +
         #tuple((r0sum[1:-box_y, :-1],)) +
         #tuple(r0sum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
         #tuple(rnsum[1:-box_y, 1:, c] for c in range(img.shape[2])) +
@@ -271,7 +277,7 @@ class Drop:
       sig = np.zeros(img_vars.shape[0:2])
       #sig = np.zeros(img.shape[0:2])
       if self.flag_train:
-        print_str = '{:4.0f}{:4.0f}{:4.0f}  {:25s}{:3s}' + '{:5.0f}'*len(self.vars_title) + '{:5.0f}'*len(self.vars_title_x1)
+        print_str = '{:4.0f}{:4.0f}{:4.0f}  {:25s}{:3s}' + '{:4.0f}'*len(self.vars_title) + '{:4.0f}'*len(self.vars_title_x1)
         print('Variables: {}'.format({iv: v for iv,v in enumerate(self.vars_title + self.vars_title_x1)}))
         print(print_str.replace('.0f}', 's}').replace('{:', '{:>').format('y','x0','x1','Drop','c',*('v'+str(i) for i in range(len(self.vars_title) + len(self.vars_title_x1)))))
         for s in signal:
@@ -304,6 +310,8 @@ class Drop:
             if x1_scan == x1:
               if self.flag_mycheck:
                 my_rsum = sum(-2*img[yy, x1]+img[yy, x1+1] for yy in range(y+1, y+1+box_y))/box_y
+                rsum_denom = sum(img[yy,x1+1] for yy in range(y+1, y+1+box_y))
+                my_rsumrat = [100*sum(-2*img[yy, x1, c]+img[yy, x1+1, c] for yy in range(y+1, y+1+box_y))/rsum_denom[c] if rsum_denom[c] != 0 else -255 for c in range(img.shape[2])]
                 #my_r0sum = sum(sum(abs(-2*img[yy, x1, c]+img[yy, x1+1, c]) for c in range(3))<=20 for yy in range(y+1, y+1+box_y))
                 my_r0sum = sum(sum(abs(-2*img[yy, x1, c]+img[yy, x1+1, c]) for c in range(3))<=20 for yy in range(y+1, y+1+box_y))
                 my_rasum = -1*sum(abs(-2*img[yy, x1]+img[yy, x1+1]) for yy in range(y+1, y+1+box_y))/box_y
@@ -318,7 +326,8 @@ class Drop:
                 #  a
                 my_ntasum = -1*sum(abs(img[y, xx]-2*img[y+1, xx]) for xx in range(x1+1, min(x1+1+box_x, img.shape[1])))/box_x
                 my_space = -1*sum(img[yy,xx] for xx in range(max(0,x1-4), min(x1+6, img.shape[1])) for yy in range(y+1, y+1+box_y))/10/box_y
-                my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum])), [])
+                #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum])), [])
+                my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rsumrat)), [])
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], [my_r0sum])), [])
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rnsum)), [])
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rnlsum, my_ntsum, my_rnlsum-my_ntsum)), [])
@@ -561,8 +570,10 @@ if __name__ == '__main__':
   #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, 17.5, 26.0, 30.6875]
   #dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -7.2645164, -6.0903225, -8.858065, -21.941935, -22.754839, -26.393549, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 39.403847, -19.088888]
   #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, 1.0]
+  #dropper.cuts = [-7.16129, -7.0, -10.4838705, -6.8817225, -38.83871, -38.451614, -36.322582, -36.881725, -7.2645164, -6.0903225, -8.858065, -7.4043007, -21.941935, -22.754839, -26.393549, -21.632257, -39.5, -30.375, -22.625, -30.145834, -42.0, -33.625, -35.5, -32.14583, 39.403847, -19.088888]
+  #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -15.124999, -32.25, -37.25, -44.0625, -36.812496, -16.15]
   dropper.cuts = [-7.16129, -7.0, -10.4838705, -6.8817225, -38.83871, -38.451614, -36.322582, -36.881725, -7.2645164, -6.0903225, -8.858065, -7.4043007, -21.941935, -22.754839, -26.393549, -21.632257, -39.5, -30.375, -22.625, -30.145834, -42.0, -33.625, -35.5, -32.14583, 39.403847, -19.088888]
-  dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -15.124999, -32.25, -37.25, -44.0625, -36.812496, -16.15]
+  dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -15.124999, -32.25, -37.25, -44.0625, -36.812496, -16.15, -31.428572, -14.091219, -13.324709, -11.878683]
   dropper.flag_train = 0
   dropper.flag_mycheck = 0
   if len(sys.argv) == 1:
