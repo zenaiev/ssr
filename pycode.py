@@ -46,7 +46,7 @@ class Drop:
                 fig.suptitle(title[i].split('[')[0])
                 fig.canvas.set_window_title(title[i].split('[')[0])
                 plt.subplots_adjust(hspace = 0.0, left = 0.01, right = 0.99)
-              ax = axes[i%3]
+              ax = axes[(i-i3_last)%3]
               if (i-i3_last)%3 == 2:
                 store = title[i].split('[')[0]
                 i3_last = i+1
@@ -58,7 +58,7 @@ class Drop:
               store = title[i]
               i3_last = i+1
             bkg_sample = random.sample(bkg, min(10000, len(bkg)))
-            cuts.append(self._plot(title[i], [v[i] for v in sig], [v[i] for v in bkg_sample], np.linspace(0, 300, 100), [1.0, 0.90], ax, col=['b','g','r'][i%3], store=store))
+            cuts.append(self._plot(title[i], [v[i] for v in sig], [v[i] for v in bkg_sample], np.linspace(0, 300, 100), [1.0, 0.90], ax, col=['b','g','r'][(i-i3_last)%3], store=store))
         print('dropper.cuts = {}'.format(cuts_xy))
         print('dropper.cuts_x1 = {}'.format(cuts_x1))
         plt.show(block=False)
@@ -154,21 +154,23 @@ class Drop:
       return img_max
 
     def _boxes(self, img, signal=[]):
+      #print(img[0,0])
       assert img.shape[2] == 3 # bgr
       box_x = 31
       n_box_x = 7
-      #n_box_x = 1
+      n_box_x = 1
       box_y = self.box_height
       #box_y = 6
       mar_l, mar_r, mar_t, mar_b = 4, 5, 2, 5
       #mar_l, mar_r, mar_t, mar_b = 2, 2, 2, 2
       mean_bgr = np.mean(img, axis=(0,1))
       mean_img = np.mean(mean_bgr)
-      print('mean: {} {}'.format(mean_bgr, mean_img))
+      #print('mean: {} {}'.format(mean_bgr, mean_img))
       t = cv2.filter2D(img, -1, np.matrix('1; -2'), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)
       b = cv2.filter2D(img, -1, np.matrix('-2; 1'), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)
       l = cv2.filter2D(img, -1, np.matrix('1 -2'), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)
       r = cv2.filter2D(img, -1, np.matrix('-2 1'), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)
+      _,r0 = cv2.threshold(np.sum(np.absolute(r), axis=2),20,1,cv2.THRESH_BINARY_INV)
       rnl = 2*cv2.filter2D(img, -1, np.matrix('-1 1 -1'), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)
       space = -1*cv2.filter2D(img, -1, np.matrix(';'.join(['1 '*10]*box_y)), anchor=(4,0), borderType=cv2.BORDER_ISOLATED)/10/box_y
       ta = np.absolute(t)*-1
@@ -187,6 +189,8 @@ class Drop:
       lsum = cv2.filter2D(l, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
       lasum = cv2.filter2D(la, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
       rsum = cv2.filter2D(r, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
+      r0sum = cv2.filter2D(r0, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)
+      rnsum = cv2.filter2D(img, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
       rasum = cv2.filter2D(ra, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
       rnlsum = cv2.filter2D(rnl, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
       rnlasum = cv2.filter2D(rnla, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
@@ -230,9 +234,12 @@ class Drop:
         self.vars_title_x1 += ['rsum'+'['+c+']' for c in 'bgr']
         self.vars_title_x1 += ['rasum'+'['+c+']' for c in 'bgr']
         self.vars_title_x1 += ['marrsum']
-        self.vars_title_x1 += ['rnlsum'+'['+c+']' for c in 'bgr']
-        self.vars_title_x1 += ['ntsum'+'['+c+']' for c in 'bgr']
-        self.vars_title_x1 += ['rnlmntsum'+'['+c+']' for c in 'bgr']
+        self.vars_title_x1 += ['r0sum']
+        #self.vars_title_x1 += ['r0sum'+'['+c+']' for c in 'bgr']
+        #self.vars_title_x1 += ['rnsum'+'['+c+']' for c in 'bgr']
+        #self.vars_title_x1 += ['rnlsum'+'['+c+']' for c in 'bgr']
+        #self.vars_title_x1 += ['ntsum'+'['+c+']' for c in 'bgr']
+        #self.vars_title_x1 += ['rnlmntsum'+'['+c+']' for c in 'bgr']
         #self.vars_title_x1 += ['rnlmntasum'+'['+c+']' for c in 'bgr']
         #self.vars_title_x1 += ['space'+'['+c+']' for c in 'bgr']
       img_vars_x1 = cv2.merge(
@@ -240,9 +247,12 @@ class Drop:
         tuple(rsum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
         tuple(rasum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
         tuple((marrsum[1:-box_y, 0:-1]*-1,)) +
-        tuple(rnlsum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
-        tuple(tsum_max[:-box_y-1, 1:, c] for c in range(img.shape[2])) +
-        tuple(rnlsum[1:-box_y, :-1, c]-tsum_max[:-box_y-1, 1:, c] for c in range(img.shape[2])) +
+        tuple((r0sum[1:-box_y, :-1],)) +
+        #tuple(r0sum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
+        #tuple(rnsum[1:-box_y, 1:, c] for c in range(img.shape[2])) +
+        #tuple(rnlsum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
+        #tuple(tsum_max[:-box_y-1, 1:, c] for c in range(img.shape[2])) +
+        #tuple(rnlsum[1:-box_y, :-1, c]-tsum_max[:-box_y-1, 1:, c] for c in range(img.shape[2])) +
         #tuple(rnlasum[1:-box_y, :-1, c]-tasum_max[:-box_y-1, 1:, c] for c in range(img.shape[2])) +
         #tuple(space[1:-box_y, 0:-1, c] for c in range(img.shape[2])) +
       ())
@@ -284,8 +294,11 @@ class Drop:
             if x1_scan == x1:
               if self.flag_mycheck:
                 my_rsum = sum(-2*img[yy, x1]+img[yy, x1+1] for yy in range(y+1, y+1+box_y))/box_y
+                #my_r0sum = sum(sum(abs(-2*img[yy, x1, c]+img[yy, x1+1, c]) for c in range(3))<=20 for yy in range(y+1, y+1+box_y))
+                my_r0sum = sum(sum(abs(-2*img[yy, x1, c]+img[yy, x1+1, c]) for c in range(3))<=20 for yy in range(y+1, y+1+box_y))
                 my_rasum = -1*sum(abs(-2*img[yy, x1]+img[yy, x1+1]) for yy in range(y+1, y+1+box_y))/box_y
                 my_marrsum = max(self._calc_adxdysum(img, x1-mar_r+1, x1, y+1, y+box_y))*-1
+                my_rnsum = sum(img[yy, x1+1] for yy in range(y+1, y+1+box_y))/box_y
                 my_rnlsum = 2*sum(-img[yy, x1]+img[yy, x1+1]-img[yy, x1+2] for yy in range(y+1, y+1+box_y))/box_y
                 my_rnlasum = -1*sum(abs(-img[yy, x1]+img[yy, x1+1]-img[yy, x1+2]) for yy in range(y+1, y+1+box_y))/box_y
                 my_ntsum = sum(img[y, xx]-2*img[y+1, xx] for xx in range(x1+1, min(x1+1+box_x, img.shape[1])))/box_x
@@ -295,7 +308,10 @@ class Drop:
                 #  a
                 my_ntasum = -1*sum(abs(img[y, xx]-2*img[y+1, xx]) for xx in range(x1+1, min(x1+1+box_x, img.shape[1])))/box_x
                 my_space = -1*sum(img[yy,xx] for xx in range(max(0,x1-4), min(x1+6, img.shape[1])) for yy in range(y+1, y+1+box_y))/10/box_y
-                my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rnlsum, my_ntsum, my_rnlsum-my_ntsum)), [])
+                #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum])), [])
+                my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], [my_r0sum])), [])
+                #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rnsum)), [])
+                #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rnlsum, my_ntsum, my_rnlsum-my_ntsum)), [])
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rnlsum, my_ntsum)), [])
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rnlsum-my_ntsum)), [])
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rnlsum-my_ntsum, my_rnlasum-my_ntasum)), [])
@@ -325,14 +341,14 @@ class Drop:
             if all(v >= (c-1e-5) for v,c in zip(img_vars[y, x], self.cuts)):
               print('x,y {} {}'.format(x, y))
               for x1 in range(x+box_x, sig.shape[1]):
-                print(img_vars_x1[y, x1])
                 if all(v >= (c-1e-5) for v,c in zip(img_vars_x1[y, x1], self.cuts_x1)):
+                  print(x1, img_vars_x1[y, x1])
                   x1s.append(x1)
                   sig[y, x] = 1
                   ys.append(y)
                   xs.append(x)
                   x1_last = x1
-                  cv2.waitKey()
+                  #cv2.waitKey()
                   break
       return (ys, xs, x1s)
     
@@ -498,9 +514,13 @@ if __name__ == '__main__':
   #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, -105.72177, -107.47177, -108.33064]
   #dropper.cuts = [-33.548386, -34.322582, -23.290323, -40.870968, -39.967743, -36.322582, -33.741936, -37.032257, -43.35484, -35.35484, -39.225807, -50.064518, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 36.33173, -19.088888]
   #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, -123.3, -124.725, -125.1125]
+  #dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -7.2645164, -6.0903225, -8.858065, -21.941935, -22.754839, -26.393549, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 39.403847, -19.088888]
+  #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, -105.72177, -107.47177, -108.33064]
+  #dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -7.2645164, -6.0903225, -8.858065, -21.941935, -22.754839, -26.393549, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 39.403847, -19.088888]
+  #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, 17.5, 26.0, 30.6875]
   dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -7.2645164, -6.0903225, -8.858065, -21.941935, -22.754839, -26.393549, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 39.403847, -19.088888]
-  dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, -105.72177, -107.47177, -108.33064]
-  dropper.flag_train = 0
+  dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, 1.0]
+  dropper.flag_train = 1
   dropper.flag_mycheck = 1
   if len(sys.argv) == 1:
     #ret = py_droprec(cv2.imread('../../502/screens_1/95621693075.png'), y0=300, y1=345, x0=275, x1=465, signal=[[4+300, 10+275], [22+300, 62+275], [1+300, 1+275]])
