@@ -158,7 +158,8 @@ class Drop:
       assert img.shape[2] == 3 # bgr
       box_x = 31
       n_box_x = 7
-      n_box_x = 1
+      if self.flag_mycheck:
+        n_box_x = 1
       box_y = self.box_height
       #box_y = 6
       mar_l, mar_r, mar_t, mar_b = 4, 5, 2, 5
@@ -234,7 +235,7 @@ class Drop:
         self.vars_title_x1 += ['rsum'+'['+c+']' for c in 'bgr']
         self.vars_title_x1 += ['rasum'+'['+c+']' for c in 'bgr']
         self.vars_title_x1 += ['marrsum']
-        self.vars_title_x1 += ['r0sum']
+        #self.vars_title_x1 += ['r0sum']
         #self.vars_title_x1 += ['r0sum'+'['+c+']' for c in 'bgr']
         #self.vars_title_x1 += ['rnsum'+'['+c+']' for c in 'bgr']
         #self.vars_title_x1 += ['rnlsum'+'['+c+']' for c in 'bgr']
@@ -247,7 +248,7 @@ class Drop:
         tuple(rsum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
         tuple(rasum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
         tuple((marrsum[1:-box_y, 0:-1]*-1,)) +
-        tuple((r0sum[1:-box_y, :-1],)) +
+        #tuple((r0sum[1:-box_y, :-1],)) +
         #tuple(r0sum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
         #tuple(rnsum[1:-box_y, 1:, c] for c in range(img.shape[2])) +
         #tuple(rnlsum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
@@ -308,8 +309,8 @@ class Drop:
                 #  a
                 my_ntasum = -1*sum(abs(img[y, xx]-2*img[y+1, xx]) for xx in range(x1+1, min(x1+1+box_x, img.shape[1])))/box_x
                 my_space = -1*sum(img[yy,xx] for xx in range(max(0,x1-4), min(x1+6, img.shape[1])) for yy in range(y+1, y+1+box_y))/10/box_y
-                #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum])), [])
-                my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], [my_r0sum])), [])
+                my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum])), [])
+                #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], [my_r0sum])), [])
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rnsum)), [])
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rnlsum, my_ntsum, my_rnlsum-my_ntsum)), [])
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rnlsum, my_ntsum)), [])
@@ -336,22 +337,30 @@ class Drop:
         for y in range(sig.shape[0]-box_y):
           x1_last = -1
           for x in range(sig.shape[1]-box_x):
-            if x < x1_last:
-              continue
-            if all(v >= (c-1e-5) for v,c in zip(img_vars[y, x], self.cuts)):
-              print('x,y {} {}'.format(x, y))
-              for x1 in range(x+box_x, sig.shape[1]):
-                if all(v >= (c-1e-5) for v,c in zip(img_vars_x1[y, x1], self.cuts_x1)):
-                  print(x1, img_vars_x1[y, x1])
-                  x1s.append(x1)
-                  sig[y, x] = 1
-                  ys.append(y)
-                  xs.append(x)
-                  x1_last = x1
-                  #cv2.waitKey()
-                  break
+            ret = self._check_box_at_xy(y, x, x1_last, box_x, sig, img_vars, img_vars_x1)
+            if ret is not None:
+              ys.append(ret[0])
+              xs.append(ret[1])
+              x1s.append(ret[2])
+              x1_last = ret[2]
       return (ys, xs, x1s)
     
+    def _check_box_at_xy(self, y, x, x1_last, box_x, sig, img_vars, img_vars_x1):
+      if x < x1_last:
+        return None
+      if all(v >= (c-1e-5) for v,c in zip(img_vars[y, x], self.cuts)):
+        print('x,y {} {}'.format(x, y))
+        for x1 in range(x+box_x, sig.shape[1]):
+          if all(v >= (c-1e-5) for v,c in zip(img_vars_x1[y, x1], self.cuts_x1)):
+            print(x1, img_vars_x1[y, x1])
+            #x1s.append(x1)
+            sig[y, x] = 1
+            #ys.append(y)
+            #xs.append(x)
+            x1_last = x1
+            #cv2.waitKey()
+            return y, x, x1
+
     def _calc_adxdysum(self, img, l, r, t, b):
       #print(l, r, t, b, r-l, b-t)
       assert r>=l and b>=t
@@ -518,9 +527,11 @@ if __name__ == '__main__':
   #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, -105.72177, -107.47177, -108.33064]
   #dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -7.2645164, -6.0903225, -8.858065, -21.941935, -22.754839, -26.393549, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 39.403847, -19.088888]
   #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, 17.5, 26.0, 30.6875]
-  dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -7.2645164, -6.0903225, -8.858065, -21.941935, -22.754839, -26.393549, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 39.403847, -19.088888]
-  dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, 1.0]
-  dropper.flag_train = 1
+  #dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -7.2645164, -6.0903225, -8.858065, -21.941935, -22.754839, -26.393549, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 39.403847, -19.088888]
+  #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, 1.0]
+  dropper.cuts = [-33.548386, -34.322582, -23.290323, -40.870968, -39.967743, -36.322582, -33.741936, -37.032257, -43.35484, -35.35484, -39.225807, -50.064518, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 36.33173, -19.088888]
+  dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15]
+  dropper.flag_train = 0
   dropper.flag_mycheck = 1
   if len(sys.argv) == 1:
     #ret = py_droprec(cv2.imread('../../502/screens_1/95621693075.png'), y0=300, y1=345, x0=275, x1=465, signal=[[4+300, 10+275], [22+300, 62+275], [1+300, 1+275]])
