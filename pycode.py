@@ -84,7 +84,10 @@ class Drop:
       self.basedir = '/home/zenaiev/games/Diablo2/ssr/'
       self.config_tesseract = "-c tessedit_char_whitelist='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz -'"
       with open(self.basedir + 'd2-drop-items.txt') as f:
-          self.items = [l[:-1] for l in f.readlines()]
+        self.items = [l[:-1] for l in f.readlines()]
+      with open(self.basedir + 'd2-drop-words-for-dict.txt') as f:
+        # same order as self.items
+        self.items_single = [l[:-1] for l in f.readlines()]
       self.current_drop = []
       self.flag_train = False
       self.flag_mycheck = False
@@ -100,16 +103,38 @@ class Drop:
 
     def _config_spellchecker(self):
       #self.spellchecker = aspell.Speller('lang', 'en')
-      self.spellchecker = aspell.Speller(('master', self.basedir + 'dwords.rws'))
+      self.spellchecker = aspell.Speller(('master', self.basedir + 'd2-words.rws'), ('home-dir', self.basedir))
+      return
       #self.spellchecker = aspell.Speller()
-      ll = self.spellchecker.getMainwordlist()
+      #ll = self.spellchecker.getMainwordlist()
       #print(len(ll))
       #a
-      with open(self.basedir + 'd2-drop-words.txt') as f:
-        for l in f.readlines():
-          w = l.rstrip()
-          print('adding {}'.format(w))
-          self.spellchecker.addtoSession(w)
+      #with open(self.basedir + 'd2-drop-words.txt') as f:
+      #  for l in f.readlines():
+      #    w = l.rstrip()
+      #    print('adding {}'.format(w))
+      #    self.spellchecker.addtoSession(w)
+
+    def _suggest_item(self, item):
+      # https://github.com/WojciechMula/aspell-python
+      item = item.lower().replace(' ', 'q').replace('-', 'z')
+      item_new_w = []
+      # in principle item should be one word now
+      for w in item.split():
+        if w in self.spellchecker:
+          print('{} in spellchecker'.format(w))
+          item_new_w.append(w)
+        else:
+          w_sug = self.spellchecker.suggest(w)
+          print('{} not in spellchecker, suggested {}'.format(w, w_sug))
+          if len(w_sug) > 0:
+            item_new_w.append(w_sug[0])
+      item_new = ' '.join(item_new_w)
+      if item_new in self.items_single:
+        item_new = self.items[self.items_single.index(item_new)]
+      print('  --> {}'.format(item_new))
+      cv2.waitKey()
+      return item_new
 
     def stats(self):
       if self.flag_train:
@@ -201,15 +226,15 @@ class Drop:
         img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         #img_gray = np.int16(img_gray)
         img_gray = np.float32(img_gray)
-        '''img_float = np.float32(img)
+        img_float = np.float32(img)
         ys, ls, rs = self._boxes(img_float, signal=signal)
         ys = [y+1 for y in ys]
         ls = [y+1 for y in ls]
         rs = [x for x in rs]
-        print(ys, ls, rs, sep='\n')'''
-        ys = [249, 249, 249, 264, 264, 279, 294, 309, 324, 339, 357, 376]
-        ls = [328, 421, 578, 268, 409, 307, 312, 289, 326, 244, 386, 296]
-        rs = [419, 576, 783, 407, 574, 476, 400, 458, 491, 434, 432, 451]
+        print(ys, ls, rs, sep='\n')
+        #ys = [249, 249, 249, 264, 264, 279, 294, 309, 324, 339, 357, 376]
+        #ls = [328, 421, 578, 268, 409, 307, 312, 289, 326, 244, 386, 296]
+        #rs = [419, 576, 783, 407, 574, 476, 400, 458, 491, 434, 432, 451]
         #ys,ls,rs = [294], [312], [400]
         drop = []
         i = -1
@@ -231,22 +256,6 @@ class Drop:
           cv2.rectangle(img, (l-1, y-1), (r+1, y+self.box_height), (0, 255, 0), 1)
         self._waypoint(img, 'output', 0)
         return drop
-
-    def _suggest_item(self, item):
-      # https://github.com/WojciechMula/aspell-python
-      item_new_w = []
-      for w in item.split():
-        if w in self.spellchecker:
-          print('{} in spellchecker'.format(w))
-          item_new_w.append(w)
-        else:
-          w_sug = self.spellchecker.suggest(w)
-          print('{} not in spellchecker, suggested {}'.format(w, w_sug))
-          item_new_w.append(w_sug[0])
-      item_new = ' '.join(item_new_w)
-      print('  --> {}'.format(item_new))
-      cv2.waitKey()
-      return item_new
 
     def _set_to_zero(self, img, y0=None, y1=None, x0=None, x1=None):
       if y0 is None: y0 = 0
@@ -677,10 +686,11 @@ class Drop:
       bsize = 5
       th_tes = cv2.copyMakeBorder(th_tes, top=bsize, bottom=bsize, left=bsize, right=bsize, borderType=cv2.BORDER_CONSTANT, value=255)'''
       th_tes = img_col
-      #th_tes[:1] = 0
-      #th_tes[-1:] = 0
-      #th_tes[:, :1] = 0
-      #th_tes[:, -1:] = 0
+      if 0:
+        th_tes[:1] = 0
+        th_tes[-4:] = 0
+        th_tes[:, :5] = 0
+        th_tes[:, -4:] = 0
       #bsize = 5
       #th_tes = cv2.copyMakeBorder(th_tes, top=bsize, bottom=bsize, left=bsize, right=bsize, borderType=cv2.BORDER_CONSTANT, value=(0,0,0))
       #th_tes = th_tes[:-4, 3:-4]
@@ -728,7 +738,7 @@ class Drop:
     def _run_tesseract(self, image):
       res = pytesseract.image_to_data(image, config=self.config_tesseract+' --psm 7'+' -c tessedit_write_images=True')
       #res = pytesseract.image_to_string(image, config=self.config_tesseract+' --psm 7')
-      #print(res)
+      print(res)
       #print('res: {}'.format(res))
       #conf, text = res.splitlines()[-1].split()[-2:]
       conf, text = [], []
@@ -861,9 +871,9 @@ if __name__ == '__main__':
     #ret = py_droprec(cv2.imread('../../502/screens_1/95621693075.png'), y0=300, y1=345, x0=275, x1=465, signal=[[4+300, 10+275], [22+300, 62+275], [1+300, 1+275]])
     #ret = py_droprec(cv2.imread('../158458820669.png'), signal=[[145,245,361,'Martel De Fer','y'],[145,363,553,GHP,'w'],[145,555,745,GHP,'w'],[160,221,319,'Tusk Sword','g'],[160,321,526,FRP,'w'],[175,232,408,GMP,'w'],[190,222,351,'Studded Leather','b'],[205,226,381,SMP,'w'],[220,249,425,GMP,'w'],[235,176,366,GHP,'w'],[251,270,403,'Conquest Sword','y'],[268,207,397,GHP,'w']])
     # trained
-    ret = py_droprec(*get_img('../../502/screens_1/94456900671.png', signal=[[249,328,419,'Bone Wand','y'],[249,421,576,SMP,'w'],[249,578,783,FRP,'w'],[264,268,407,'Flawed Amethyst','w'],[264,409,574,RP,'w'],[279,307,476,SHP,'w'],[294,312,400,'Bone Shield','b'],[309,289,458,SHP,'w'],[324,326,491,RP,'w'],[339,244,434,GHP,'w'],[357,386,432,'Jewel','y'],[376,296,451,SMP,'w']]))
+    #ret = py_droprec(*get_img('../../502/screens_1/94456900671.png', signal=[[249,328,419,'Bone Wand','y'],[249,421,576,SMP,'w'],[249,578,783,FRP,'w'],[264,268,407,'Flawed Amethyst','w'],[264,409,574,RP,'w'],[279,307,476,SHP,'w'],[294,312,400,'Bone Shield','b'],[309,289,458,SHP,'w'],[324,326,491,RP,'w'],[339,244,434,GHP,'w'],[357,386,432,'Jewel','y'],[376,296,451,SMP,'w']]))
     #
-    #ret = py_droprec(*get_img('../../502/screens_1/95217013080.png'))
+    ret = py_droprec(*get_img('../../502/screens_1/95217013080.png'))
     # blue
     # ../../502/screens_1/94778304482.png
     # ../../502/screens_1/96189675273.png

@@ -1,4 +1,10 @@
+# install aspell
+# https://docs.ipswitch.com/MOVEit/DMZ%207.5/online%20guide/MOVEitDMZ_AdvancedTopics_Packages_SpellCheckDictionaries.htm
+sudo apt-get install libaspell-dev
+pip3 install aspell-python-py3
 python3 convert-d2-items.py d2-items-input.txt d2-drop-words.txt d2-drop-items.txt
+aspell --lang=en create master ./d2-words.rws < d2-drop-words-for-dict.txt
+
 mkdir build-my
 cd build-my
 ln -s ../pycode.py ./
