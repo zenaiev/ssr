@@ -13,6 +13,70 @@ import os
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import random
+import time
+import atexit
+import traceback
+import operator
+import aspell
+
+# https://medium.com/pythonhive/python-decorator-to-measure-the-execution-time-of-methods-fa04cb6bb36d
+def timeit(method):
+  global _do_time
+  if _do_time:
+    def timed(*args, **kw):
+      global _g_time
+      #print args
+      #print kw
+      ts = time.time()
+      result = method(*args, **kw)
+      te = time.time()
+      args_no_img = ['img' if type(a) is np.ndarray else a for a in args]
+      kw_no_img = ['img' if type(a) is np.ndarray else a for a in kw]
+      #name = '{}{:.2f}s {}{}{}'.format(' ' * len(traceback.extract_stack()), te - ts, method.__name__, args, kw)
+      name = '{}{:.2f}s {}{}{}'.format(' ' * len(traceback.extract_stack()), te - ts, method.__name__, args_no_img, kw_no_img)
+      #name = '{}{:.2f}s {}'.format(' ' * len(traceback.extract_stack()), te - ts, method.__name__)
+      _g_time.append(name)
+      #if 'log_time' in kw:
+      #  name = kw.get('log_name', method.__name__.upper())
+      #  kw['log_time'][name] = int((te - ts) * 1000)
+      #else:
+      #  print '%r  %2.2f ms' % \
+      #    (method.__name__, (te - ts) * 1000)
+      return result
+    return timed
+  else:
+    return method
+
+def print_all_time():
+  global _do_time, _g_time, g_skip_atexit
+  if g_skip_atexit:
+    return
+  if not _do_time:
+    return
+  if not _g_time:
+    return
+  print("Timing all:")
+  sum_per_method = {}
+  for t in _g_time:
+    print(t)
+    val,method = t.split('(')[0].lstrip(' ').split(' ')[0:2]
+    #print(val,method)
+    val = float(val.rstrip('s'))
+    if method not in sum_per_method:
+      sum_per_method.update({method: val})
+    else:
+      sum_per_method[method] += val
+  #print(sum_per_method)
+  sum_per_method = sorted(sum_per_method.items(), key=operator.itemgetter(1),  reverse=True)
+  #print(sum_per_method)
+  print("Timing sorted per function:")
+  for tup in sum_per_method:
+    print(' {:.2f}s {}'.format(tup[1], tup[0]))
+    #print(' {:.2f}s'.format(tup[1]))
+
+g_skip_atexit = False
+_g_time = []
+_do_time = 1
 
 class Drop:
     def __init__(self):
@@ -32,7 +96,21 @@ class Drop:
       self.cuts_x1 = []
       self.vars_title = []
       self.vars_title_x1 = []
-    
+      self._config_spellchecker()
+
+    def _config_spellchecker(self):
+      #self.spellchecker = aspell.Speller('lang', 'en')
+      self.spellchecker = aspell.Speller(('master', self.basedir + 'dwords.rws'))
+      #self.spellchecker = aspell.Speller()
+      ll = self.spellchecker.getMainwordlist()
+      #print(len(ll))
+      #a
+      with open(self.basedir + 'd2-drop-words.txt') as f:
+        for l in f.readlines():
+          w = l.rstrip()
+          print('adding {}'.format(w))
+          self.spellchecker.addtoSession(w)
+
     def stats(self):
       if self.flag_train:
         cuts_xy, cuts_x1 = [], []
@@ -115,30 +193,60 @@ class Drop:
 
     def reset_drop(self):
         self.current_drop = []
-
+    
+    @timeit
     def process_drop(self, img, signal=[]):
-        self._waypoint(self.img_orig, 'orig')
-        self._waypoint(img, 'input')
+        #self._waypoint(self.img_orig, 'orig')
+        #self._waypoint(img, 'input')
         img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         #img_gray = np.int16(img_gray)
         img_gray = np.float32(img_gray)
-        img_float = np.float32(img)
+        '''img_float = np.float32(img)
         ys, ls, rs = self._boxes(img_float, signal=signal)
         ys = [y+1 for y in ys]
         ls = [y+1 for y in ls]
         rs = [x for x in rs]
-        print(ys, ls, rs, sep='\n')
+        print(ys, ls, rs, sep='\n')'''
+        ys = [249, 249, 249, 264, 264, 279, 294, 309, 324, 339, 357, 376]
+        ls = [328, 421, 578, 268, 409, 307, 312, 289, 326, 244, 386, 296]
+        rs = [419, 576, 783, 407, 574, 476, 400, 458, 491, 434, 432, 451]
+        #ys,ls,rs = [294], [312], [400]
+        drop = []
+        i = -1
+        for y,l,r in zip(ys, ls, rs):
+          i += 1
+          #if i != 6: continue
+          #for scale in range(1, 30):
+          #  print('scale = {}'.format(scale))
+          #  drop.append(self._process_box(img_gray[y:y+self.box_height, l:r+1], self.img_orig[y:y+self.box_height, l:r+1], i, scale))
+          #  print('box {:2d}: y = {} x = {} x1 = {} color = {} conf = {} item = {}'.format(i, y, l, r, drop[-1][2], drop[-1][1], drop[-1][0]))
+          drop.append(self._process_box(img_gray[y:y+self.box_height, l:r+1], self.img_orig[y:y+self.box_height, l:r+1], i))
+          if len(drop[-1][0]) > 0:
+            drop[-1][0] = self._suggest_item(drop[-1][0])
+          print('box {:2d}: y = {} x = {} x1 = {} color = {} conf = {} item = {}'.format(i, y, l, r, drop[-1][2], drop[-1][1], drop[-1][0]))
+          #cv2.waitKey()
+          #if i == 1: break
+        print('drop {}: {}'.format(len(drop), drop))
         for y,l,r in zip(ys, ls, rs):
           cv2.rectangle(img, (l-1, y-1), (r+1, y+self.box_height), (0, 255, 0), 1)
-        drop = []
-        '''i = 0
-        for y,l,r in zip(ys, ls, rs):
-          drop.append(self._process_box(img_gray[y:y+self.box_height, l:r+1], img[y:y+self.box_height, l:r+1], i))
-          print('box {:2d}: y = {} l = {} r = {} color = {} conf = {} item = {}'.format(i, y, l, r, drop[-1][2], drop[-1][1], drop[-1][0]))
-          i += 1
-        print('drop {}: {}'.format(len(drop), drop))'''
-        self._waypoint(img, 'output', 1)
+        self._waypoint(img, 'output', 0)
         return drop
+
+    def _suggest_item(self, item):
+      # https://github.com/WojciechMula/aspell-python
+      item_new_w = []
+      for w in item.split():
+        if w in self.spellchecker:
+          print('{} in spellchecker'.format(w))
+          item_new_w.append(w)
+        else:
+          w_sug = self.spellchecker.suggest(w)
+          print('{} not in spellchecker, suggested {}'.format(w, w_sug))
+          item_new_w.append(w_sug[0])
+      item_new = ' '.join(item_new_w)
+      print('  --> {}'.format(item_new))
+      cv2.waitKey()
+      return item_new
 
     def _set_to_zero(self, img, y0=None, y1=None, x0=None, x1=None):
       if y0 is None: y0 = 0
@@ -157,6 +265,13 @@ class Drop:
         img_max = cv2.max(img_max, imgs[i])
       return img_max
 
+    def _calc_rat(self, img, nom, denom):
+      denom[np.where(denom == 0)] = 1
+      rat = nom/denom*100
+      rat[np.where(np.isinf(img))] = -255
+      return rat
+
+    @timeit
     def _boxes(self, img_bgr, signal=[]):
       img = cv2.merge((*cv2.split(img_bgr), np.sum(img_bgr, axis=2)/3))
       channels = 'bgrv'
@@ -170,6 +285,7 @@ class Drop:
       #box_y = 6
       mar_l, mar_r, mar_t, mar_b = 4, 5, 2, 5
       #mar_l, mar_r, mar_t, mar_b = 2, 2, 2, 2
+      min_sumrat = -500
       mean_bgr = np.mean(img, axis=(0,1))
       mean_img = np.mean(mean_bgr)
       #print('mean: {} {}'.format(mean_bgr, mean_img))
@@ -187,22 +303,34 @@ class Drop:
       rnla = np.absolute(rnl)*-1
       tsum = [cv2.filter2D(t, -1, np.matrix('1 '*box_x*i), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_x*i) for i in range(1,n_box_x+1)]
       tsum_max = self._max_img_from_list(tsum)
+      tsumrat_max = self._max_img_from_list([self._calc_rat(img, tsum[i-1], cv2.filter2D(img, -1, np.matrix('1 '*box_x*i), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_x*i)) for i in range(1,n_box_x+1)])
+      tsumrat_max = np.clip(tsumrat_max, min_sumrat, np.inf)
       tasum = [cv2.filter2D(ta, -1, np.matrix('1 '*box_x*i), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_x*i) for i in range(1,n_box_x+1)]
       tasum_max = self._max_img_from_list(tasum)
+      tasumrat_max = self._max_img_from_list([self._calc_rat(img, tasum[i-1], cv2.filter2D(img, -1, np.matrix('1 '*box_x*i), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_x*i)) for i in range(1,n_box_x+1)])
+      tasumrat_max = np.clip(tasumrat_max, min_sumrat, np.inf)
       bsum = [cv2.filter2D(b, -1, np.matrix('1 '*box_x*i), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_x*i) for i in range(1,n_box_x+1)]
       bsum_max = self._max_img_from_list(bsum)
+      bsumrat_max = self._max_img_from_list([self._calc_rat(img, bsum[i-1][:-1], cv2.filter2D(img[1:, :], -1, np.matrix('1 '*box_x*i), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_x*i)) for i in range(1,n_box_x+1)])
+      bsumrat_max = np.clip(bsumrat_max, min_sumrat, np.inf)
       basum = [cv2.filter2D(ba, -1, np.matrix('1 '*box_x*i), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_x*i) for i in range(1,n_box_x+1)]
       basum_max = self._max_img_from_list(basum)
+      basumrat_max = self._max_img_from_list([self._calc_rat(img, basum[i-1][:-1], cv2.filter2D(img[1:, :], -1, np.matrix('1 '*box_x*i), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_x*i)) for i in range(1,n_box_x+1)])
+      basumrat_max = np.clip(basumrat_max, min_sumrat, np.inf)
       lsum = cv2.filter2D(l, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
+      lsumrat = self._calc_rat(img, lsum[:, :-1], cv2.filter2D(img[:, :-1], -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/box_y)
+      lsumrat = np.clip(lsumrat, min_sumrat, np.inf)
       lasum = cv2.filter2D(la, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
+      lasumrat = self._calc_rat(img, lasum[:, :-1], cv2.filter2D(img[:, :-1], -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/box_y)
+      lasumrat = np.clip(lasumrat, min_sumrat, np.inf)
       rsum = cv2.filter2D(r, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
-      rsumrat_denom = cv2.filter2D(img[:, 1:], -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)
-      rsumrat_denom[np.where(rsumrat_denom == 0)] = 1
-      rsumrat = rsum[:, :-1]/rsumrat_denom*box_y*100
-      rsumrat[np.where(np.isinf(img))] = -255
+      rsumrat = self._calc_rat(img, rsum[:, :-1], cv2.filter2D(img[:, 1:], -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/box_y)
+      rsumrat = np.clip(rsumrat, min_sumrat, np.inf)
       r0sum = cv2.filter2D(r0, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)
       rnsum = cv2.filter2D(img, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
       rasum = cv2.filter2D(ra, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
+      rasumrat = self._calc_rat(img, rasum[:, :-1], cv2.filter2D(img[:, 1:], -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/box_y)
+      rasumrat = np.clip(rasumrat, min_sumrat, np.inf)
       rnlsum = cv2.filter2D(rnl, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
       rnlasum = cv2.filter2D(rnla, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
       dxa = np.absolute(cv2.filter2D(img, -1, np.matrix('1 -1'), anchor=(0,0), borderType=cv2.BORDER_ISOLATED))
@@ -225,20 +353,33 @@ class Drop:
       if len(self.vars_title) == 0:
         self.vars_title += ['tsum_max'+'['+c+']' for c in channels]
         self.vars_title += ['tasum_max'+'['+c+']' for c in channels]
+        self.vars_title += ['tsumrat_max'+'['+c+']' for c in channels]
+        self.vars_title += ['tasumrat_max'+'['+c+']' for c in channels]
         self.vars_title += ['bsum_max'+'['+c+']' for c in channels]
         self.vars_title += ['basum_max'+'['+c+']' for c in channels]
+        self.vars_title += ['bsumrat_max'+'['+c+']' for c in channels]
+        self.vars_title += ['basumrat_max'+'['+c+']' for c in channels]
         self.vars_title += ['lsum'+'['+c+']' for c in channels]
         self.vars_title += ['lasum'+'['+c+']' for c in channels]
+        self.vars_title += ['lsumrat'+'['+c+']' for c in channels]
+        self.vars_title += ['lasumrat'+'['+c+']' for c in channels]
         self.vars_title += ['boxsum_max']
         self.vars_title += ['marlsum']
+      #print(tsum_max[:-box_y-1, 1:-box_x, 0].shape, tsumrat_max[:-box_y-1, 1:-box_x, 0].shape, bsum_max[box_y:-1, 1:-box_x, 0].shape, bsumrat_max[box_y:-1, 1:-box_x, 0].shape)
       img_vars = cv2.merge(
         () +
         tuple(tsum_max[:-box_y-1, 1:-box_x, c] for c in range(img.shape[2])) +
         tuple(tasum_max[:-box_y-1, 1:-box_x, c] for c in range(img.shape[2])) +
+        tuple(tsumrat_max[:-box_y-1, 1:-box_x, c] for c in range(img.shape[2])) +
+        tuple(tasumrat_max[:-box_y-1, 1:-box_x, c] for c in range(img.shape[2])) +
         tuple(bsum_max[box_y:-1, 1:-box_x, c] for c in range(img.shape[2])) +
         tuple(basum_max[box_y:-1, 1:-box_x, c] for c in range(img.shape[2])) +
+        tuple(bsumrat_max[box_y:, 1:-box_x, c] for c in range(img.shape[2])) +
+        tuple(basumrat_max[box_y:, 1:-box_x, c] for c in range(img.shape[2])) +
         tuple(lsum[1:-box_y, :-box_x-1, c] for c in range(img.shape[2])) +
         tuple(lasum[1:-box_y, :-box_x-1, c] for c in range(img.shape[2])) +
+        tuple(lsumrat[1:-box_y, :-box_x, c] for c in range(img.shape[2])) +
+        tuple(lasumrat[1:-box_y, :-box_x, c] for c in range(img.shape[2])) +
         tuple((boxsum_max[mar_t+1:-box_y+mar_t, mar_l+1:-box_x+mar_l],)) +
         tuple((marlsum[1:-box_y, 1:-box_x]*-1,)) +
       ())
@@ -246,8 +387,9 @@ class Drop:
       if len(self.vars_title_x1) == 0:
         self.vars_title_x1 += ['rsum'+'['+c+']' for c in channels]
         self.vars_title_x1 += ['rasum'+'['+c+']' for c in channels]
-        self.vars_title_x1 += ['marrsum']
         self.vars_title_x1 += ['rsumrat'+'['+c+']' for c in channels]
+        self.vars_title_x1 += ['rasumrat'+'['+c+']' for c in channels]
+        self.vars_title_x1 += ['marrsum']
         #self.vars_title_x1 += ['r0sum']
         #self.vars_title_x1 += ['r0sum'+'['+c+']' for c in 'bgr']
         #self.vars_title_x1 += ['rnsum'+'['+c+']' for c in 'bgr']
@@ -260,8 +402,9 @@ class Drop:
         () +
         tuple(rsum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
         tuple(rasum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
-        tuple((marrsum[1:-box_y, 0:-1]*-1,)) +
         tuple(rsumrat[1:-box_y, :, c] for c in range(img.shape[2])) +
+        tuple(rasumrat[1:-box_y, :, c] for c in range(img.shape[2])) +
+        tuple((marrsum[1:-box_y, 0:-1]*-1,)) +
         #tuple((r0sum[1:-box_y, :-1],)) +
         #tuple(r0sum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
         #tuple(rnsum[1:-box_y, 1:, c] for c in range(img.shape[2])) +
@@ -287,18 +430,34 @@ class Drop:
           if self.flag_mycheck:
             my_tsum = sum(img[y, xx]-2*img[y+1, xx] for xx in range(x+1, x+1+box_x))/box_x
             my_tasum = -1*sum(abs(img[y, xx]-2*img[y+1, xx]) for xx in range(x+1, x+1+box_x))/box_x
+            tsum_denom = sum(img[y, xx] for xx in range(x+1, x+1+box_x))
+            my_tsumrat = [100*sum(img[y, xx, c]-2*img[y+1, xx, c] for xx in range(x+1, x+1+box_x))/tsum_denom[c] if tsum_denom[c] != 0 else -255 for c in range(img.shape[2])]
+            my_tsumrat = np.clip(my_tsumrat, min_sumrat, np.inf)
+            my_tasumrat = [100*-1*sum(abs(img[y, xx, c]-2*img[y+1, xx, c]) for xx in range(x+1, x+1+box_x))/tsum_denom[c] if tsum_denom[c] != 0 else -255 for c in range(img.shape[2])]
+            my_tasumrat = np.clip(my_tasumrat, min_sumrat, np.inf)
             my_bsum = sum(-2*img[y+box_y, xx]+img[y+box_y+1, xx] for xx in range(x+1, x+1+box_x))/box_x
             my_basum = -1*sum(abs(2*img[y+box_y, xx]-img[y+box_y+1, xx]) for xx in range(x+1, x+1+box_x))/box_x
+            bsum_denom = sum(img[y+box_y+1, xx] for xx in range(x+1, x+1+box_x))
+            my_bsumrat = [100*sum(-2*img[y+box_y, xx, c]+img[y+1+box_y, xx, c] for xx in range(x+1, x+1+box_x))/bsum_denom[c] if bsum_denom[c] != 0 else -255 for c in range(img.shape[2])]
+            my_bsumrat = np.clip(my_bsumrat, min_sumrat, np.inf)
+            my_basumrat = [100*-1*sum(abs(-2*img[y+box_y, xx, c]+img[y+1+box_y, xx, c]) for xx in range(x+1, x+1+box_x))/bsum_denom[c] if bsum_denom[c] != 0 else -255 for c in range(img.shape[2])]
+            my_basumrat = np.clip(my_basumrat, min_sumrat, np.inf)
             my_lsum = sum(img[yy, x]-2*img[yy, x+1] for yy in range(y+1, y+1+box_y))/box_y
             my_lasum = -1*sum(abs(img[yy, x]-2*img[yy, x+1]) for yy in range(y+1, y+1+box_y))/box_y
+            lsum_denom = sum(img[yy,x] for yy in range(y+1, y+1+box_y))
+            my_lsumrat = [100*sum(img[yy, x, c]-2*img[yy, x+1, c] for yy in range(y+1, y+1+box_y))/lsum_denom[c] if lsum_denom[c] != 0 else -255 for c in range(img.shape[2])]
+            my_lsumrat = np.clip(my_lsumrat, min_sumrat, np.inf)
+            my_lasumrat = [100*-1*sum(abs(img[yy, x, c]-2*img[yy, x+1, c]) for yy in range(y+1, y+1+box_y))/lsum_denom[c] if lsum_denom[c] != 0 else -255 for c in range(img.shape[2])]
+            my_lasumrat = np.clip(my_lasumrat, min_sumrat, np.inf)
             my_boxsum = max(self._calc_adxdysum(img, x+1+mar_l, x+box_x, y+1+mar_t, y+box_y-mar_b))
             my_marlsum = max(self._calc_adxdysum(img, x+1, x+mar_l, y+1, y+box_y))*-1
-            my_vars = sum((list(img) for img in (my_tsum, my_tasum, my_bsum, my_basum, my_lsum, my_lasum, [my_boxsum], [my_marlsum])), [])
+            my_vars = sum((list(img) for img in (my_tsum, my_tasum, my_tsumrat, my_tasumrat, my_bsum, my_basum, my_bsumrat, my_basumrat, my_lsum, my_lasum, my_lsumrat, my_lasumrat, [my_boxsum], [my_marlsum])), [])
             my_diff = [a-b for a,b in zip(my_vars, img_vars[y, x])]
-            if not all(abs(d) < 1e-5 for d in my_diff):
+            if not all(abs(d) < 3e-5 for d in my_diff):
               print('img {}'.format(img_vars[y, x]))
               print('my {}'.format(my_vars))
               print('diff (len diff {}-{}={}): {}'.format(len(my_vars), len(img_vars[y, x]), len(my_vars)-len(img_vars[y, x]), my_diff))
+              print('diffs are: {}'.format([(a,b) for t,a,b in zip([abs(d) < 1e-5 for d in my_diff], my_vars, img_vars[y, x]) if not t]))
               assert 0
           print(print_str.format(*s, *img_vars[y, x], *img_vars_x1[y, x1]))
           self.sig.append(img_vars[y, x])
@@ -312,6 +471,9 @@ class Drop:
                 my_rsum = sum(-2*img[yy, x1]+img[yy, x1+1] for yy in range(y+1, y+1+box_y))/box_y
                 rsum_denom = sum(img[yy,x1+1] for yy in range(y+1, y+1+box_y))
                 my_rsumrat = [100*sum(-2*img[yy, x1, c]+img[yy, x1+1, c] for yy in range(y+1, y+1+box_y))/rsum_denom[c] if rsum_denom[c] != 0 else -255 for c in range(img.shape[2])]
+                my_rsumrat = np.clip(my_rsumrat, min_sumrat, np.inf)
+                my_rasumrat = [100*-1*sum(abs(-2*img[yy, x1, c]+img[yy, x1+1, c]) for yy in range(y+1, y+1+box_y))/rsum_denom[c] if rsum_denom[c] != 0 else -255 for c in range(img.shape[2])]
+                my_rasumrat = np.clip(my_rasumrat, min_sumrat, np.inf)
                 #my_r0sum = sum(sum(abs(-2*img[yy, x1, c]+img[yy, x1+1, c]) for c in range(3))<=20 for yy in range(y+1, y+1+box_y))
                 my_r0sum = sum(sum(abs(-2*img[yy, x1, c]+img[yy, x1+1, c]) for c in range(3))<=20 for yy in range(y+1, y+1+box_y))
                 my_rasum = -1*sum(abs(-2*img[yy, x1]+img[yy, x1+1]) for yy in range(y+1, y+1+box_y))/box_y
@@ -327,7 +489,7 @@ class Drop:
                 my_ntasum = -1*sum(abs(img[y, xx]-2*img[y+1, xx]) for xx in range(x1+1, min(x1+1+box_x, img.shape[1])))/box_x
                 my_space = -1*sum(img[yy,xx] for xx in range(max(0,x1-4), min(x1+6, img.shape[1])) for yy in range(y+1, y+1+box_y))/10/box_y
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum])), [])
-                my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rsumrat)), [])
+                my_vars = sum((list(img) for img in (my_rsum, my_rasum, my_rsumrat, my_rasumrat, [my_marrsum])), [])
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], [my_r0sum])), [])
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rnsum)), [])
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rnlsum, my_ntsum, my_rnlsum-my_ntsum)), [])
@@ -339,10 +501,11 @@ class Drop:
                 my_diff = [a-b for a,b in zip(my_vars, img_vars_x1[y, x1])]
                 #print(my_vars)
                 #print(img_vars_x1[y, x1])
-                if not all(abs(d) < 1e-5 for d in my_diff):
+                if not all(abs(d) < 3e-5 for d in my_diff):
                   print('img {}'.format(img_vars_x1[y, x1]))
                   print('my {}'.format(my_vars))
-                  print('diff (len diff {}): {}'.format(len(my_vars)-len(img_vars_x1[y, x1]), my_diff))
+                  print('diff (len diff {}-{}={}): {}'.format(len(my_vars), len(img_vars_x1[y, x1]), len(my_vars)-len(img_vars_x1[y, x1]), my_diff))
+                  print('diffs are: {}'.format([a,b] for t,a,b in zip((abs(d) < 1e-5 for d in my_diff), my_vars, img_vars_x1[y, x]) if t))
                   assert 0
               self.sig_x1.append(img_vars_x1[y, x1_scan])
             else:
@@ -363,6 +526,7 @@ class Drop:
                 xs.append(r[1])
                 x1s.append(r[2])
               x1_last = x1s[-1]
+              #return (ys, xs, x1s)
       return (ys, xs, x1s)
     
     def _check_box_at_xy(self, y, x, x1_last, box_x, sig, img_vars, img_vars_x1):
@@ -374,7 +538,8 @@ class Drop:
       if all(v >= (c-1e-5) for v,c in zip(img_vars[y, x], self.cuts)):
         #print('checking x,y {} {}'.format(x, y))
         for x1 in range(x+box_x, sig.shape[1]+box_x):
-          #print(' checking x1 {}'.format(x1))
+          #if y == 248 and x == 577:
+          #  print(' checking x1 {}: {}'.format(x1, img_vars_x1[y, x1]))
           if all(v >= (c-1e-5) for v,c in zip(img_vars_x1[y, x1], self.cuts_x1)):
             #print('  possible right edge')
             # check for top and bottom edges
@@ -397,8 +562,9 @@ class Drop:
             #ys.append(y)
             #xs.append(x)
             x1_last = x1
+            #print(y, x, x1)
             #cv2.waitKey()
-            ret.append([y, x, x1])
+            ret.insert(0, [y, x, x1])
             return ret
       return ret
 
@@ -411,6 +577,7 @@ class Drop:
         ret.append(sum(abs(img[y,x,c]-img[y,x+1,c])+abs(img[y,x,c]-img[y+1,x,c]) for x in range(l,r) for y in range(t,b))/(2*(r-l)*(b-t)))
       return ret
 
+    @timeit
     def _waypoint(self, img, label, wait=False):
       cv2.imshow(label, img)
       fname = 'img/{}_{}.png'.format(self.timestamp, label)
@@ -419,12 +586,64 @@ class Drop:
       if wait:
         cv2.waitKey()
 
-    def _process_box(self, img_gray_orig, img_col, i=0):
-      img_gray = np.uint8(img_gray_orig)
-      ret,th = cv2.threshold(img_gray,0,255,cv2.THRESH_BINARY_INV+cv2.THRESH_OTSU)
+    def _thresh(self, img):
+      ret,th = cv2.threshold(img,0,255,cv2.THRESH_BINARY_INV+cv2.THRESH_OTSU)
+      #print(th)
+      m_sd_0 = cv2.meanStdDev(img)
+      m_sd_1 = cv2.meanStdDev(img, mask=th)
+      m_sd_2 = cv2.meanStdDev(img, mask=cv2.bitwise_not(th))
+      #print('thresholding gray[{}]: {} {} {}'.format(ret, m_sd_2, m_sd_1, m_sd_0))
+      return th, m_sd_2[0]-m_sd_1[0]
+
+    def _thresh_my(self, img):
+      img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+      print(img_hsv[4,4])
+      img_hsv = cv2.inRange(img_hsv, (110,140,159), (130,170,255))
+      #img_hsv = cv2.inRange(img_hsv, (119,140,150), (121,170,255)) # good
+      #img_hsv = cv2.inRange(img_hsv, (118,0,0), (120,255,255))
+      ret,th = cv2.threshold(img_hsv,0,255,cv2.THRESH_BINARY_INV+cv2.THRESH_OTSU)
+      #print(th)
+      m_sd_0 = cv2.meanStdDev(img)
+      m_sd_1 = cv2.meanStdDev(img, mask=th)
+      m_sd_2 = cv2.meanStdDev(img, mask=cv2.bitwise_not(th))
+      #print('thresholding gray[{}]: {} {} {}'.format(ret, m_sd_2, m_sd_1, m_sd_0))
+      return th, m_sd_2[0]-m_sd_1[0]
+
+    @timeit
+    def _process_box(self, img_gray_orig, img_col, i=0, scale=15):
+      drop_color = None
+      '''img_gray = np.uint8(img_gray_orig)
+      #print(img_gray)
+      self._waypoint(img_gray, 'gray_{:02d}'.format(i))
+      th_gray, diff_gray = self._thresh(img_gray)
+      #img_h = cv2.split(cv2.cvtColor(img_col, cv2.COLOR_BGR2HSV))[0]
+      ret = cv2.split(cv2.cvtColor(img_col, cv2.COLOR_BGR2HSV))
+      #img_h = np.uint8(ret[0]/2+ret[2]/2)
+      img_h = ret[0]
+      #print(img_h)
+      self._waypoint(img_h, 'h_{:02d}'.format(i))
+      th_h, diff_h = self._thresh(img_h)
+      print('diff_gray, diff_h: {} {}'.format(diff_gray, diff_h))
+      if diff_gray > diff_h and 0:
+        print('using th_gray')
+        th = th_gray
+      else:
+        print('using th_h')
+        th = th_h
+        #th = cv2.bitwise_not(cv2.bitwise_and(cv2.bitwise_not(th_gray), cv2.bitwise_not(th_h)))
+        img_col = cv2.resize(img_col, (img_col.shape[1]*scale, img_col.shape[0]*scale))
+        scale = 1
+        th,d = self._thresh_my(img_col)
+        #print(th)
+        self._waypoint(th, 'thmy_{:02d}'.format(i), 0)
+      #print(th)
+      #m_sd_0 = cv2.meanStdDev(img_gray)
+      #m_sd_1 = cv2.meanStdDev(img_gray, mask=th)
+      #m_sd_2 = cv2.meanStdDev(img_gray, mask=cv2.bitwise_not(th))
+      #print('thresholding gray[{}]: {} {} {}'.format(ret, m_sd_2, m_sd_1, m_sd_0))
       if th is None:
         return '', -1, ''
-      print('thresholding: ret = {}, th.shape = {}'.format(ret, th.shape))
+      #print('thresholding: ret = {}, th.shape = {}'.format(ret, th.shape))
       self._waypoint(th, 'thresh_{:02d}'.format(i))
       img_col_fg = cv2.bitwise_and(img_col, img_col, mask=cv2.bitwise_not(th))
       self._waypoint(img_col_fg, 'thresh_fg_{:02d}'.format(i))
@@ -446,19 +665,70 @@ class Drop:
         drop_color = 'g'
       else: # 240
         drop_color = 'b'
-      th_tes = th[1:-4, 4:-4]
-      th_tes = cv2.resize(th_tes, (th_tes.shape[1]*4, th_tes.shape[0]*4))
+      #th_tes = th[1:-5, 4:-5]
+      th_tes = th[:-4, 3:-4]
+      th_tes[:1] = 255
+      th_tes[-1:] = 255
+      th_tes[:, :1] = 255
+      th_tes[:, -1:] = 255
+      #print(th_tes)
+      th_tes = cv2.resize(th_tes, (th_tes.shape[1]*scale, th_tes.shape[0]*scale))
+      #th_tes = th
       bsize = 5
-      th_tes = cv2.copyMakeBorder(th_tes, top=bsize, bottom=bsize, left=bsize, right=bsize, borderType=cv2.BORDER_CONSTANT, value=255)
+      th_tes = cv2.copyMakeBorder(th_tes, top=bsize, bottom=bsize, left=bsize, right=bsize, borderType=cv2.BORDER_CONSTANT, value=255)'''
+      th_tes = img_col
+      #th_tes[:1] = 0
+      #th_tes[-1:] = 0
+      #th_tes[:, :1] = 0
+      #th_tes[:, -1:] = 0
+      #bsize = 5
+      #th_tes = cv2.copyMakeBorder(th_tes, top=bsize, bottom=bsize, left=bsize, right=bsize, borderType=cv2.BORDER_CONSTANT, value=(0,0,0))
+      #th_tes = th_tes[:-4, 3:-4]
+      #th_tes = cv2.resize(th_tes, (th_tes.shape[1]*scale, th_tes.shape[0]*scale))
+      th_tes = cv2.resize(th_tes, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+      #th_tes = cv2.resize(th_tes, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
+      #th_tes = cv2.medianBlur(th_tes, 27)
+      #th_tes = cv2.bilateralFilter(th_tes,9,75,75)
       self._waypoint(th_tes, 'tes_{:02d}'.format(i))
+      #th_tes = cv2.imread('img/94456900671_tes_06.png')
       item, conf = self._run_tesseract(th_tes)
-      return item, conf, drop_color
+      #os.system('mv tessinput.tif {}'.format('img/tesout_{:02d}'.format(i)))
+      img_tesout = cv2.imread('tessinput.tif')
+      self._waypoint(img_tesout, 'tesout_{:02d}'.format(i), 0)
+      img_tesfg = cv2.bitwise_and(th_tes, th_tes, mask=cv2.bitwise_not(cv2.cvtColor(img_tesout, cv2.COLOR_BGR2GRAY)))
+      self._waypoint(img_tesfg, 'tesfg_{:02d}'.format(i), 0)
+      drop_color = self._detect_color(img_tesfg)
+      return [item, conf, drop_color]
 
+    def _detect_color(self, img):
+      mean_col = np.mean(img, axis=(0,1))
+      img_1 = np.zeros((1, 1, 3), dtype='uint8')
+      img_1[0, 0] = mean_col
+      hsv = cv2.cvtColor(img_1, cv2.COLOR_BGR2HSV)
+      #print('foreground rgb: {} hsv: {}'.format(mean_col, hsv))
+      hue = hsv[0, 0, 0] * 2
+      if all(c > 10 for c in mean_col) and abs(mean_col[0]-mean_col[1])<10 and abs(mean_col[0]-mean_col[2])<10 and abs(mean_col[2]-mean_col[1])<10:
+        drop_color = 'w'
+      elif hue < 42: # 40
+        drop_color = 'o'
+      elif hue < 53: # 45
+        drop_color = 'u'
+      elif hue < 70: # 60
+        drop_color = 'y'
+      elif hue < 150: # 120
+        drop_color = 'g'
+      else: # 240
+        drop_color = 'b'
+      return drop_color
+    
     def _get_drop_from_img(self, img):
         return [self.items[random.randrange(len(self.items))] for i in range(random.randrange(1, 5))]
     
+    @timeit
     def _run_tesseract(self, image):
-      res = pytesseract.image_to_data(image, config=self.config_tesseract+' --psm 7')
+      res = pytesseract.image_to_data(image, config=self.config_tesseract+' --psm 7'+' -c tessedit_write_images=True')
+      #res = pytesseract.image_to_string(image, config=self.config_tesseract+' --psm 7')
+      #print(res)
       #print('res: {}'.format(res))
       #conf, text = res.splitlines()[-1].split()[-2:]
       conf, text = [], []
@@ -466,19 +736,23 @@ class Drop:
         #print(l.split())
         c, t = l.split()[-2:]
         #print(c, t)
-        if t != '-1' and float(c) > 0:
+        if t != '-1' and float(c) >= 0:
           conf.append(float(c))
           text.append(t)
       #print([l.split()[-2:] for l in res.splitlines()])
       #print(zip([l.split()[-2:] for l in res.splitlines()]))
       #conf, text = zip([l.split()[-2:] for l in res.splitlines()])
       print('tesseract: conf = {} text = {}'.format(conf, text))
-      return ' '.join(text), sum(conf)/len(conf)
+      if len(conf) != 0:
+        return ' '.join(text), sum(conf)/len(conf)
+      else:
+        return '', 0
 
 
 dropper = Drop()
 
 #def py_droprec(img, timestamp=0, y0=20, y1=570, x0=None, x1=None, signal=[]):
+@timeit
 def py_droprec(img, timestamp=0, signal=[], y0=None, y1=None, x0=None, x1=None):
   print('SZ droprec timestamp = {}, crop = [{}:{}, {}:{}], signal = {}'.format(timestamp, y0, y1, x0, x1, signal))
   signal_copy = signal[:]
@@ -554,7 +828,10 @@ def get_img(img_name, signal=None):
       signal = []
   return img, timestamp, signal
 
+
 if __name__ == '__main__':
+  _do_time = 0
+  atexit.register(print_all_time)
   np.set_printoptions(threshold=np.inf, linewidth=np.inf)
   #dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -5.096774, -4.1827955, -5.419355, -21.655914, -20.903225, -22.838709, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 44.62088, -19.088888]
   #dropper.cuts_x1 = [-9.1875, -12.9375, -12.875, -32.25, -37.25, -44.0625, -16.022223]
@@ -572,8 +849,12 @@ if __name__ == '__main__':
   #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, 1.0]
   #dropper.cuts = [-7.16129, -7.0, -10.4838705, -6.8817225, -38.83871, -38.451614, -36.322582, -36.881725, -7.2645164, -6.0903225, -8.858065, -7.4043007, -21.941935, -22.754839, -26.393549, -21.632257, -39.5, -30.375, -22.625, -30.145834, -42.0, -33.625, -35.5, -32.14583, 39.403847, -19.088888]
   #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -15.124999, -32.25, -37.25, -44.0625, -36.812496, -16.15]
-  dropper.cuts = [-7.16129, -7.0, -10.4838705, -6.8817225, -38.83871, -38.451614, -36.322582, -36.881725, -7.2645164, -6.0903225, -8.858065, -7.4043007, -21.941935, -22.754839, -26.393549, -21.632257, -39.5, -30.375, -22.625, -30.145834, -42.0, -33.625, -35.5, -32.14583, 39.403847, -19.088888]
-  dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -15.124999, -32.25, -37.25, -44.0625, -36.812496, -16.15, -31.428572, -14.091219, -13.324709, -11.878683]
+  #dropper.cuts = [-7.16129, -7.0, -10.4838705, -6.8817225, -38.83871, -38.451614, -36.322582, -36.881725, -7.2645164, -6.0903225, -8.858065, -7.4043007, -21.941935, -22.754839, -26.393549, -21.632257, -39.5, -30.375, -22.625, -30.145834, -42.0, -33.625, -35.5, -32.14583, 39.403847, -19.088888]
+  #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -15.124999, -32.25, -37.25, -44.0625, -36.812496, -16.15, -31.428572, -14.091219, -13.324709, -11.878683]
+  dropper.cuts = [-7.16129, -7.0, -10.4838705, -6.8817225, -38.83871, -38.451614, -36.322582, -36.881725, -11.501648, -10.992908, -13.68421, -10.386243, -89.89042, -79.00921, -35.410526, -58.58474, 
+                  -7.2645164, -6.0903225, -8.858065, -7.4043007, -21.941935, -22.754839, -26.393549, -21.632257, -16.058187, -10.803388, -13.728627, -13.370353, -52.581924, -49.029125, -40.905907, -39.062557,
+                   -39.5, -30.375, -22.625, -30.145834, -42.0, -33.625, -35.5, -32.14583, -50.348026, -54.018696, -57.278477, -54.317898, -74.013916, -77.196266, -84.81013, -79.22403, 39.403847, -19.088888]
+  dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -15.124999, -32.25, -37.25, -44.0625, -36.812496, -31.428572, -14.091219, -13.324709, -11.878683, -90.87452, -89.43396, -79.430374, -78.7234, -16.15]
   dropper.flag_train = 0
   dropper.flag_mycheck = 0
   if len(sys.argv) == 1:
@@ -582,7 +863,7 @@ if __name__ == '__main__':
     # trained
     ret = py_droprec(*get_img('../../502/screens_1/94456900671.png', signal=[[249,328,419,'Bone Wand','y'],[249,421,576,SMP,'w'],[249,578,783,FRP,'w'],[264,268,407,'Flawed Amethyst','w'],[264,409,574,RP,'w'],[279,307,476,SHP,'w'],[294,312,400,'Bone Shield','b'],[309,289,458,SHP,'w'],[324,326,491,RP,'w'],[339,244,434,GHP,'w'],[357,386,432,'Jewel','y'],[376,296,451,SMP,'w']]))
     #
-    ret = py_droprec(*get_img('../../502/screens_1/95217013080.png'))
+    #ret = py_droprec(*get_img('../../502/screens_1/95217013080.png'))
     # blue
     # ../../502/screens_1/94778304482.png
     # ../../502/screens_1/96189675273.png
