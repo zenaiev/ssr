@@ -5,6 +5,31 @@ pip3 install aspell-python-py3
 python3 convert-d2-items.py d2-items-input.txt d2-drop-words.txt d2-drop-items.txt
 aspell --lang=en create master ./d2-words.rws < d2-drop-words-for-dict.txt
 
+# train tesseract
+# https://vovaprivalov.medium.com/tesseract-ocr-tips-custom-dictionary-to-improve-ocr-d2b9cd17850b
+mkdir training
+cd training
+cp /usr/share/tesseract-ocr/5/tessdata/eng.traineddata ./
+mkdir traineddat_backup
+combine_tessdata -u eng.traineddata traineddat_backup/eng.
+wordlist2dawg ../d2-drop-words.txt eng.lstm-word-dawg traineddat_backup/eng.lstm-unicharset
+combine_tessdata -o eng.traineddata eng.lstm-word-dawg
+#
+# https://wiki.apertium.org/wiki/Training_Tesseract
+text2image --text=../d2-drop-words-upper.txt --outputbase=d2.diablo_h.exp0 --font='Diablo Heavy' --fonts_dir=../
+tesseract d2.diablo_h.exp0.tif d2.diablo_h.exp0 box.train
+unicharset_extractor d2.*.exp0.box
+nano font_properties
+diablo_h 0 0 0 0 0
+shapeclustering -F font_properties -U unicharset d2.*.exp0.tr
+mftraining -F font_properties -U unicharset -O d2.unicharset d2.*.exp0.tr
+cntraining d2.*.exp0.tr
+mv normproto d2.normproto   # only for indic languages (?)
+mv inttemp d2.inttemp
+mv pffmtable d2.pffmtable
+wordlist2dawg ../d2-drop-words-upper.txt d2.word-dawg d2.unicharset
+combine_tessdata d2.
+
 mkdir build-my
 cd build-my
 ln -s ../pycode.py ./
