@@ -178,20 +178,22 @@ class Drop:
           if any(a<b for a,b in zip(cuts_xy, self.cuts)):
             print('cuts_xy to be updated: {}'.format([a<b for a,b in zip(cuts_xy, self.cuts)]))
             cuts_xy = [min(a,b) for a,b in zip(cuts_xy, self.cuts)]
+            print('dropper.cuts = {}'.format([math.floor(c*1000)/1000.0 for c in cuts_xy]))
           else:
             print('cuts_xy are the same')
         else:
           print('cuts_xy are new')
+          print('dropper.cuts = {}'.format([math.floor(c*1000)/1000.0 for c in cuts_xy]))
         if len(self.cuts_x1) == len(cuts_x1):
           if any(a<b for a,b in zip(cuts_x1, self.cuts_x1)):
             print('cuts_x1 to be updated: {}'.format([a<b for a,b in zip(cuts_x1, self.cuts_x1)]))
             cuts_x1 = [min(a,b) for a,b in zip(cuts_x1, self.cuts_x1)]
+            print('dropper.cuts_x1 = {}'.format([math.floor(c*1000)/1000.0 for c in cuts_x1]))
           else:
             print('cuts_x1 are the same')
         else:
           print('cuts_x1 are new')
-        print('dropper.cuts = {}'.format([math.floor(c*1000)/1000.0 for c in cuts_xy]))
-        print('dropper.cuts_x1 = {}'.format([math.floor(c*1000)/1000.0 for c in cuts_x1]))
+          print('dropper.cuts_x1 = {}'.format([math.floor(c*1000)/1000.0 for c in cuts_x1]))
         plt.show(block=False)
         cv2.waitKey()
         #print(self.cuts)
@@ -385,11 +387,17 @@ class Drop:
       basumrat_max = self._max_img_from_list([self._calc_rat(img, basum[i-1][:-1], cv2.filter2D(img[1:, :], -1, np.matrix('1 '*box_x*i), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_x*i)) for i in range(1,n_box_x+1)])
       basumrat_max = np.clip(basumrat_max, min_sumrat, np.inf)
       lsum = cv2.filter2D(l, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
+      lbmsum = cv2.filter2D(l, -1, np.matrix(';'.join('1'*mar_b)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(mar_b)
       lsumrat = self._calc_rat(img, lsum[:, :-1], cv2.filter2D(img[:, :-1], -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/box_y)
       lsumrat = np.clip(lsumrat, min_sumrat, np.inf)
+      lbmsumrat = self._calc_rat(img, lbmsum[:, :-1], cv2.filter2D(img[:, :-1], -1, np.matrix(';'.join('1'*mar_b)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/mar_b)
+      lbmsumrat = np.clip(lbmsumrat, min_sumrat, np.inf)
       lasum = cv2.filter2D(la, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
+      lbmasum = cv2.filter2D(la, -1, np.matrix(';'.join('1'*mar_b)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(mar_b)
       lasumrat = self._calc_rat(img, lasum[:, :-1], cv2.filter2D(img[:, :-1], -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/box_y)
       lasumrat = np.clip(lasumrat, min_sumrat, np.inf)
+      lbmasumrat = self._calc_rat(img, lbmasum[:, :-1], cv2.filter2D(img[:, :-1], -1, np.matrix(';'.join('1'*mar_b)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/mar_b)
+      lbmasumrat = np.clip(lbmasumrat, min_sumrat, np.inf)
       rsum = cv2.filter2D(r, -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(box_y)
       rsumrat = self._calc_rat(img, rsum[:, :-1], cv2.filter2D(img[:, 1:], -1, np.matrix(';'.join('1'*box_y)), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/box_y)
       rsumrat = np.clip(rsumrat, min_sumrat, np.inf)
@@ -436,6 +444,10 @@ class Drop:
         self.vars_title += ['lasum'+'['+c+']' for c in channels]
         self.vars_title += ['lsumrat'+'['+c+']' for c in channels]
         self.vars_title += ['lasumrat'+'['+c+']' for c in channels]
+        self.vars_title += ['lbmsum'+'['+c+']' for c in channels]
+        self.vars_title += ['lbmasum'+'['+c+']' for c in channels]
+        self.vars_title += ['lbmsumrat'+'['+c+']' for c in channels]
+        self.vars_title += ['lbmasumrat'+'['+c+']' for c in channels]
         self.vars_title += ['boxsum_max']
         self.vars_title += ['marlsum']
       #print(tsum_max[:-box_y-1, 1:-box_x, 0].shape, tsumrat_max[:-box_y-1, 1:-box_x, 0].shape, bsum_max[box_y:-1, 1:-box_x, 0].shape, bsumrat_max[box_y:-1, 1:-box_x, 0].shape)
@@ -453,6 +465,10 @@ class Drop:
         tuple(lasum[1:-box_y, :-box_x-1, c] for c in range(img.shape[2])) +
         tuple(lsumrat[1:-box_y, :-box_x, c] for c in range(img.shape[2])) +
         tuple(lasumrat[1:-box_y, :-box_x, c] for c in range(img.shape[2])) +
+        tuple(lbmsum[1+box_y-mar_b:-mar_b, :-box_x-1, c] for c in range(img.shape[2])) +
+        tuple(lbmasum[1+box_y-mar_b:-mar_b, :-box_x-1, c] for c in range(img.shape[2])) +
+        tuple(lbmsumrat[1+box_y-mar_b:-mar_b, :-box_x, c] for c in range(img.shape[2])) +
+        tuple(lbmasumrat[1+box_y-mar_b:-mar_b, :-box_x, c] for c in range(img.shape[2])) +
         tuple((boxsum_max[mar_t+1:-box_y+mar_t, mar_l+1:-box_x+mar_l],)) +
         tuple((marlsum[1:-box_y, 1:-box_x]*-1,)) +
       ())
@@ -524,15 +540,22 @@ class Drop:
             my_basumrat = [100*-1*sum(abs(-2*img[y+box_y, xx, c]+img[y+1+box_y, xx, c]) for xx in range(x+1, x+1+box_x))/bsum_denom[c] if bsum_denom[c] != 0 else -255 for c in range(img.shape[2])]
             my_basumrat = np.clip(my_basumrat, min_sumrat, np.inf)
             my_lsum = sum(img[yy, x]-2*img[yy, x+1] for yy in range(y+1, y+1+box_y))/box_y
+            my_lbmsum = sum(img[yy, x]-2*img[yy, x+1] for yy in range(y+1+box_y-mar_b, y+1+box_y))/mar_b
             my_lasum = -1*sum(abs(img[yy, x]-2*img[yy, x+1]) for yy in range(y+1, y+1+box_y))/box_y
+            my_lbmasum = -1*sum(abs(img[yy, x]-2*img[yy, x+1]) for yy in range(y+1+box_y-mar_b, y+1+box_y))/mar_b
             lsum_denom = sum(img[yy,x] for yy in range(y+1, y+1+box_y))
+            lbmsum_denom = sum(img[yy,x] for yy in range(y+1+box_y-mar_b, y+1+box_y))
             my_lsumrat = [100*sum(img[yy, x, c]-2*img[yy, x+1, c] for yy in range(y+1, y+1+box_y))/lsum_denom[c] if lsum_denom[c] != 0 else -255 for c in range(img.shape[2])]
             my_lsumrat = np.clip(my_lsumrat, min_sumrat, np.inf)
+            my_lbmsumrat = [100*sum(img[yy, x, c]-2*img[yy, x+1, c] for yy in range(y+1+box_y-mar_b, y+1+box_y))/lbmsum_denom[c] if lbmsum_denom[c] != 0 else -255 for c in range(img.shape[2])]
+            my_lbmsumrat = np.clip(my_lbmsumrat, min_sumrat, np.inf)
             my_lasumrat = [100*-1*sum(abs(img[yy, x, c]-2*img[yy, x+1, c]) for yy in range(y+1, y+1+box_y))/lsum_denom[c] if lsum_denom[c] != 0 else -255 for c in range(img.shape[2])]
             my_lasumrat = np.clip(my_lasumrat, min_sumrat, np.inf)
+            my_lbmasumrat = [100*-1*sum(abs(img[yy, x, c]-2*img[yy, x+1, c]) for yy in range(y+1+box_y-mar_b, y+1+box_y))/lbmsum_denom[c] if lbmsum_denom[c] != 0 else -255 for c in range(img.shape[2])]
+            my_lbmasumrat = np.clip(my_lbmasumrat, min_sumrat, np.inf)
             my_boxsum = max(self._calc_adxdysum(img, x+1+mar_l, x+box_x, y+1+mar_t, y+box_y-mar_b))
             my_marlsum = max(self._calc_adxdysum(img, x+1, x+mar_l, y+1, y+box_y))*-1
-            my_vars = sum((list(img) for img in (my_tsum, my_tasum, my_tsumrat, my_tasumrat, my_bsum, my_basum, my_bsumrat, my_basumrat, my_lsum, my_lasum, my_lsumrat, my_lasumrat, [my_boxsum], [my_marlsum])), [])
+            my_vars = sum((list(img) for img in (my_tsum, my_tasum, my_tsumrat, my_tasumrat, my_bsum, my_basum, my_bsumrat, my_basumrat, my_lsum, my_lasum, my_lsumrat, my_lasumrat, my_lbmsum, my_lbmasum, my_lbmsumrat, my_lbmasumrat, [my_boxsum], [my_marlsum])), [])
             my_diff = [a-b for a,b in zip(my_vars, img_vars[y, x])]
             if not all(abs(d) < 3e-5 for d in my_diff):
               print('img {}'.format(img_vars[y, x]))
@@ -1069,7 +1092,7 @@ if __name__ == '__main__':
   #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -15.124999, -32.25, -37.25, -44.0625, -36.812496, -31.428572, -14.091219, -13.324709, -11.878683, -90.87452, -89.43396, -79.430374, -78.7234, -16.15]
   #dropper.cuts = [-98.92, -33.936, -16.0, -50.162, -99.307, -66.388, -84.975, -51.273, -94.412, -88.906, -86.392, -91.833, -94.782, -89.387, -88.978, -92.332, -44.42, -6.091, -8.859, -7.405, -76.033, -57.673, -92.135, -37.248, -27.535, -10.804, -13.729, -13.371, -52.582, -49.359, -76.747, -39.063, -39.5, -30.375, -22.625, -30.146, -47.0, -178.875, -219.75, -148.542, -50.349, -54.019, -57.279, -54.318, -74.014, -77.197, -89.058, -79.225, 39.403, -19.089]
   #dropper.cuts_x1 = [-63.438, -16.563, -13.188, -15.125, -63.438, -80.25, -111.125, -54.98, -44.499, -14.092, -13.325, -11.879, -90.875, -89.434, -79.431, -78.724, -23.076]
-  dropper.cuts = [-98.92, -33.936, -16.0, -50.162, -99.307, -66.388, -84.975, -51.273, -94.412, -88.906, -86.392, -91.833, -94.782, -89.387, -88.978, -92.332, -44.42, -6.091, -8.859, -7.405, -76.033, -57.673, -92.135, -37.248, -27.535, -10.804, -13.729, -13.371, -52.582, -49.359, -76.747, -39.063, -39.5, -30.375, -22.625, -30.146, -47.0, -178.875, -219.75, -148.542, -50.349, -54.019, -57.279, -54.318, -74.014, -77.197, -89.058, -79.225, 39.403, -19.089]
+  dropper.cuts = [-98.92, -33.936, -16.0, -50.162, -99.307, -66.388, -84.975, -51.273, -94.412, -88.906, -86.392, -91.833, -94.782, -89.387, -88.978, -92.332, -44.42, -6.091, -8.859, -7.405, -76.033, -57.673, -92.135, -37.248, -27.535, -10.804, -13.729, -13.371, -52.582, -49.359, -76.747, -39.063, -39.5, -30.375, -22.625, -30.146, -47.0, -178.875, -219.75, -148.542, -50.349, -54.019, -57.279, -54.318, -74.014, -77.197, -89.058, -79.225, -37.401, -20.0, -26.0, -19.534, -70.801, -184.601, -226.2, -153.801, -34.954, -28.468, -43.919, -33.25, -70.518, -72.393, -88.706, -60.314, 39.403, -19.089]
   dropper.cuts_x1 = [-63.438, -16.563, -13.188, -15.125, -63.438, -80.25, -111.125, -54.98, -44.499, -14.092, -13.325, -11.879, -90.875, -89.434, -79.431, -78.724, -49.8, -32.401, -35.6, -28.867, -59.201, -87.6, -122.6, -53.467, -41.74, -39.131, -77.392, -52.754, -128.696, -127.827, -85.218, -111.885, -23.076]
   dropper.flag_train = 0
   dropper.flag_mycheck = 0
