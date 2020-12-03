@@ -11,10 +11,10 @@ int main()
   PyObject *pDict = nullptr;
   PyObject *pFunc = nullptr;
   printf("dupa00\n");
+  //setenv("PYTHONPATH","/home/zenaiev/soft/root-6.22.02-bin/lib:/home/zenaiev/soft/deps/lhapdf/lib/python2.7/site-packages:/home/zenaiev/soft/deps/lhapdf/lib/python2.7/site-packages",1);
   setenv("PYTHONPATH",".",1);
-  //setenv("PYTHON3PATH",".",1);
   Py_Initialize ();
-  pName = PyUnicode_FromString ("pycode");
+  pName = PyUnicode_FromString ("pycode_tmp");
   //pName = PyUnicode_FromString ("pycode_tmp");
   pModule = PyImport_Import(pName);
   pDict = PyModule_GetDict(pModule);

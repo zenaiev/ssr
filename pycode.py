@@ -11,7 +11,9 @@ import math
 import pytesseract
 import sys
 import os
-#import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import random
 import time
@@ -1035,8 +1037,10 @@ def py_droprec(img, timestamp=0, signal=[], y0=None, y1=None, x0=None, x1=None):
 #def py_droprec(img):
 #def py_droprec():
   #return '42\n65'
-  print('in py_droprec')
-  print(img[0:2,0:2])
+  #print('in py_droprec')
+  #print(img[0:2,0:2])
+  #if img.shape[2] == 4:
+  #  print(img[np.where(img[:,:,3] != 255)])
   #print(img)
   dropper.flag_allboxes = 0
   dropper.flag_selectedbox = 1
@@ -1057,7 +1061,7 @@ def py_droprec(img, timestamp=0, signal=[], y0=None, y1=None, x0=None, x1=None):
   #s = '\n'.join(['({}){}[{}]'.format(d[2], d[0], d[1]) for d in drop])
   s = '\n'.join('({}){}[{},{},{}]'.format(d[2], d[0], d[3], d[4], d[5]) for d in drop)
   #cv2.waitKey()
-  print('ce dupa')
+  #print('ce dupa')
   return s
 
 
@@ -1135,8 +1139,8 @@ def store_sig(img_name, rets, overwrite=False):
   print('signal written to {}'.format(sig_file))
 
 if __name__ == '__main__':
-  py_droprec(cv2.imread('../../502/screens_1/95621693075.png'))
-  a
+  #py_droprec(cv2.imread('../../502/screens_1/95621693075.png'))
+  #a
   _do_time = 0
   atexit.register(print_all_time)
   np.set_printoptions(threshold=np.inf, linewidth=np.inf)
@@ -1173,7 +1177,7 @@ if __name__ == '__main__':
   dropper.flag_textrec = 1
   dropper.flag_allboxes = 0
   dropper.flag_selectedbox = 1
-  dropper.flag_skipwp = 1
+  dropper.flag_skipwp = 0
   if len(sys.argv) == 1:
     #ret = py_droprec(cv2.imread('../../502/screens_1/95621693075.png'), y0=300, y1=345, x0=275, x1=465, signal=[[4+300, 10+275], [22+300, 62+275], [1+300, 1+275]])
     #ret = py_droprec(cv2.imread('../158458820669.png'), signal=[[145,245,361,'Martel De Fer','y'],[145,363,553,GHP,'w'],[145,555,745,GHP,'w'],[160,221,319,'Tusk Sword','g'],[160,321,526,FRP,'w'],[175,232,408,GMP,'w'],[190,222,351,'Studded Leather','b'],[205,226,381,SMP,'w'],[220,249,425,GMP,'w'],[235,176,366,GHP,'w'],[251,270,403,'Conquest Sword','y'],[268,207,397,GHP,'w']])
@@ -1189,8 +1193,9 @@ if __name__ == '__main__':
     #ret = py_droprec(*get_img('../../502/screens_1/96566595942.png'))
     #ret = py_droprec(*get_img('../../502/screens_1/95842955271.png'))
     #ret = py_droprec(*get_img('../../502/screens_1/97200755937.png'))
-    #
-    ret = py_droprec(*get_img('../../502/screens_1/95637733084.png', signal=[[299,184,374,GHP,'w']]))
+    # selected box
+    #ret = py_droprec(*get_img('../../502/screens_1/95637733084.png', signal=[[299,184,374,GHP,'w']]))
+    ret = py_droprec(*get_img('../../502/screens_1/96130115273.png'))
     # blue
     # ../../502/screens_1/94778304482.png
     # ../../502/screens_1/96189675273.png

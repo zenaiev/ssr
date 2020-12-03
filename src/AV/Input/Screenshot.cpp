@@ -81,7 +81,8 @@ int Screenshot::to_python(unsigned int h, unsigned int w, uint8_t* image_data, i
   const char* path = "/home/zenaiev/games/Diablo2/502/screens/";
   //int ret = this->save_frame_as_jpeg(GetCodecContext(), packet->GetPacket(), nframe, path);
   cv::Mat img = cv::Mat(h, w, CV_8UC4, image_data);
-  std::cout << img.at<uchar>(0, 0) << std::endl;
+  //std::cout << img.at<uchar>(0, 0) << std::endl;
+  //std::cout << img << std::endl;
   /*char fname[256];
   sprintf(fname, "%s/%ld.png", path, timestamp);
   cv::imwrite(fname, img);
