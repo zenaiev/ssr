@@ -350,6 +350,18 @@ class Drop:
       #ver = cv2.filter2D(hsv_filt, -1, np.matrix('1 '*box_x), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)
       return [y-1], [x-1], [x1], cv2.bitwise_not(hsv_filt[y-1:y-1+box_y,x-1:x1])
 
+    def _get_coloured_item(self, item, col):
+      cols = {'u': '\033[91m', 'b': '\033[94m', 'o': '\033[95m', 'g': '\033[92m', 'y': '\033[93m', 'w': '\033[39m', 's': '\033[90m'}
+      #cols = {'u': '\033[91m', 'b': '\033[1;31m', 'o': '\033[95m', 'g': '\033[92m', 'y': '\033[93m', 'w': '\033[39m'}
+      #class bcolors:
+      #  LU = '\033[91m'
+      #  LB = '\033[94m'
+      #  LO = '\033[95m'
+      #  LG = '\033[92m'
+      #  LY = '\033[93m'
+      #  ENDC = '\033[0m'
+      return cols[col] + item + '\033[0m'
+
     def _print_coloured(self, drop):
       # {'u': 23.5, 'b': 119, 'o': 20, 'g': 120, 'y': 29}
       cols = {'u': '\033[91m', 'b': '\033[94m', 'o': '\033[95m', 'g': '\033[92m', 'y': '\033[93m', 'w': '\033[39m'}
@@ -362,8 +374,7 @@ class Drop:
       #  ENDC = '\033[0m'
       print('_'*30)
       for d in drop:
-        print(cols[d[2]] + d[0])
-      print('\033[0m', end='')
+        print(self._get_coloured_item(d[0], d[2]))
       print(' \u0305'*30)
 
     def _set_to_zero(self, img, y0=None, y1=None, x0=None, x1=None):
@@ -963,7 +974,7 @@ class Drop:
         frac = cv2.countNonZero(fg) / (img.shape[0] * img.shape[1])
         while frac < 0.16:
           nb = nb + 1
-          if nb > 50:
+          if nb > 70:
             break
           fg = cv2.inRange(hsv, (hue_pos-nb,sat_pos-2*nb,125), (hue_pos+nb+0.001,sat_pos+2*nb,255))
           frac = cv2.countNonZero(fg) / (img.shape[0] * img.shape[1])
@@ -1033,7 +1044,7 @@ dropper = Drop()
 
 #def py_droprec(img, timestamp=0, y0=20, y1=570, x0=None, x1=None, signal=[]):
 @timeit
-def py_droprec(img, timestamp=0, signal=[], y0=None, y1=None, x0=None, x1=None):
+def py_droprec(mode, img, timestamp=0, signal=[], y0=None, y1=None, x0=None, x1=None):
 #def py_droprec(img):
 #def py_droprec():
   #return '42\n65'
@@ -1042,9 +1053,14 @@ def py_droprec(img, timestamp=0, signal=[], y0=None, y1=None, x0=None, x1=None):
   #if img.shape[2] == 4:
   #  print(img[np.where(img[:,:,3] != 255)])
   #print(img)
-  dropper.flag_allboxes = 0
-  dropper.flag_selectedbox = 1
-  dropper.flag_skipwp = 1
+  if mode == 'test':
+    pass
+  elif mode == 'newrun' or mode == 'append':
+    dropper.flag_allboxes = 0
+    dropper.flag_selectedbox = 1
+    dropper.flag_skipwp = 1
+  else:
+    assert 0
   print('SZ droprec timestamp = {}, crop = [{}:{}, {}:{}], signal = {}'.format(timestamp, y0, y1, x0, x1, signal))
   signal_copy = signal[:]
   for s in signal_copy:
@@ -1059,7 +1075,9 @@ def py_droprec(img, timestamp=0, signal=[], y0=None, y1=None, x0=None, x1=None):
   dropper.reset_drop()
   #print(drop)
   #s = '\n'.join(['({}){}[{}]'.format(d[2], d[0], d[1]) for d in drop])
-  s = '\n'.join('({}){}[{},{},{}]'.format(d[2], d[0], d[3], d[4], d[5]) for d in drop)
+  #s = '\n'.join('({}){}[{},{},{}]'.format(d[2], d[0], d[3], d[4], d[5]) for d in drop)
+  s = '\n'.join(dropper._get_coloured_item(d[0], d[2]) for d in drop)
+  print('returning {}'.format(s))
   #cv2.waitKey()
   #print('ce dupa')
   return s

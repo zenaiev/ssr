@@ -1561,6 +1561,13 @@ void PageRecord::OnNewLogLine(Logger::enum_type type, QString string) {
 		case Logger::TYPE_WARNING:  format.setForeground(Qt::darkYellow);                          break;
 		case Logger::TYPE_ERROR:    format.setForeground(Qt::red);                                 break;
 		case Logger::TYPE_STDERR:   format.setForeground(Qt::gray);                                break;
+		case Logger::TYPE_INFO_WHITE:   format.setForeground(m_textedit_log->palette().windowText()); break;
+		case Logger::TYPE_INFO_BLUE:    format.setForeground(Qt::blue); 															break;
+		case Logger::TYPE_INFO_YELLOW:  format.setForeground(Qt::yellow); 														break;
+		case Logger::TYPE_INFO_GREEN:   format.setForeground(Qt::green); 															break;
+		case Logger::TYPE_INFO_GOLD:    format.setForeground(Qt::darkYellow); 												break;
+		case Logger::TYPE_INFO_ORANGE:  format.setForeground(Qt::red);																break;
+		case Logger::TYPE_INFO_GRAY:    format.setForeground(Qt::gray); 															break;
 	}
 	cursor.movePosition(QTextCursor::End);
 	if(cursor.position() != 0)

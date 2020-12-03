@@ -28,7 +28,14 @@ public:
 		TYPE_INFO,
 		TYPE_WARNING,
 		TYPE_ERROR,
-		TYPE_STDERR
+		TYPE_STDERR,
+		TYPE_INFO_WHITE,
+		TYPE_INFO_BLUE,
+		TYPE_INFO_YELLOW,
+		TYPE_INFO_GREEN,
+		TYPE_INFO_GOLD,
+		TYPE_INFO_ORANGE,
+		TYPE_INFO_GRAY
 	};
 
 private:
@@ -50,6 +57,7 @@ public:
 	static void LogInfo(const QString& str);
 	static void LogWarning(const QString& str);
 	static void LogError(const QString& str);
+	static void LogDrop(const QString& str);
 
 	inline static Logger* GetInstance() { assert(s_instance != NULL); return s_instance; }
 

@@ -95,9 +95,10 @@ int Screenshot::to_python(unsigned int h, unsigned int w, uint8_t* image_data, i
   npy_intp dims[3] = { h, w, 4 };
   //PyObject *py_array = PyArray_SimpleNewFromData(2, dims, NPY_FLOAT, p);
   PyObject *py_array = PyArray_SimpleNewFromData(3, dims, NPY_UINT8, p);
-  PyObject *pArgs = PyTuple_New (2);
-  PyTuple_SetItem (pArgs, 0, py_array);
-  PyTuple_SetItem (pArgs, 1, PyLong_FromLong(timestamp));
+  PyObject *pArgs = PyTuple_New (3);
+  PyTuple_SetItem (pArgs, 0, PyUnicode_FromString ("newrun"));
+  PyTuple_SetItem (pArgs, 1, py_array);
+  PyTuple_SetItem (pArgs, 2, PyLong_FromLong(timestamp));
 
   printf("dupa\n");
   if (PyCallable_Check (pFunc))
@@ -108,7 +109,8 @@ int Screenshot::to_python(unsigned int h, unsigned int w, uint8_t* image_data, i
     PyObject* py_str = PyUnicode_AsEncodedString(py_ret, "utf-8", "~E~");
     const char *s = PyBytes_AS_STRING(py_str);
     printf("s = %s\n", s);
-    Logger::LogInfo(s);
+    Logger::LogDrop(s);
+    //Logger::LogError(s);
     Py_DECREF (py_ret);
     Py_DECREF (py_str);
   }

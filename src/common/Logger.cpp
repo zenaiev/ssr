@@ -53,6 +53,46 @@ void Logger::SetLogFile(const QString &filename) {
 	m_log_file.open(QFile::WriteOnly | QFile::Append | QFile::Text | QFile::Unbuffered);
 }
 
+//#include <iostream>
+void Logger::LogDrop(const QString& str) {
+	//std::cout << "str: " << str.toStdString() << std::endl;
+	printf("str: %s\n", str.toStdString().c_str());
+	std::string stdstr = str.toStdString();
+	enum_type drop_type = TYPE_INFO;
+	QString qstr_no_color = str;
+	printf("stdstr.length(): %d\n", stdstr.length());
+	//if(stdstr.length() >= 9 && stdstr.substr(stdstr.length() - 1 - 4, stdstr.length() - 1) == std::string("\033[0m"))
+	if(stdstr.length() >= 9 && stdstr.compare(stdstr.length() - 4, 4, "\033[0m") == 0)
+	{
+		printf("in if\n");
+		if(stdstr.compare(0, 5, "\033[91m") == 0)
+			drop_type = TYPE_INFO_GOLD;
+		else if(stdstr.compare(0, 5, "\033[94m") == 0)
+			drop_type = TYPE_INFO_BLUE;
+		else if(stdstr.compare(0, 5, "\033[95m") == 0)
+			drop_type = TYPE_INFO_ORANGE;
+		else if(stdstr.compare(0, 5, "\033[92m") == 0)
+			drop_type = TYPE_INFO_GREEN;
+		else if(stdstr.compare(0, 5, "\033[93m") == 0)
+			drop_type = TYPE_INFO_YELLOW;
+		else if(stdstr.compare(0, 5, "\033[39m") == 0)
+			drop_type = TYPE_INFO_WHITE;
+		else if(stdstr.compare(0, 5, "\033[90m") == 0)
+			drop_type = TYPE_INFO_GRAY;
+		else
+		  assert(0);
+		qstr_no_color = stdstr.substr(5, stdstr.length() - 5 - 4).c_str();
+	}
+	printf("qstr_no_color: %s\n", qstr_no_color.toStdString().c_str());
+	assert(s_instance != NULL);
+	std::lock_guard<std::mutex> lock(s_instance->m_mutex); Q_UNUSED(lock);
+	QByteArray buf = (str + "\n").toLocal8Bit();
+	write(s_instance->m_original_stderr, buf.constData(), buf.size());
+	if(s_instance->m_log_file.isOpen())
+		s_instance->m_log_file.write((LogFormatTime() + " (I) " + str + "\n").toLocal8Bit());
+	emit s_instance->NewLine(drop_type, qstr_no_color);
+}
+
 void Logger::LogInfo(const QString& str) {
 	assert(s_instance != NULL);
 	std::lock_guard<std::mutex> lock(s_instance->m_mutex); Q_UNUSED(lock);
