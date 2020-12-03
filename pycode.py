@@ -11,7 +11,7 @@ import math
 import pytesseract
 import sys
 import os
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import random
 import time
@@ -309,8 +309,8 @@ class Drop:
       for y,l,r in zip(ys, ls, rs):
         cv2.rectangle(img, (l-1, y-1), (r+1, y+self.box_height), (0, 255, 0), 1)
       self._waypoint(img, 'output', 1)
-      if len(drop) > 0:
-        cv2.waitKey()
+      #if len(drop) > 0:
+      #  cv2.waitKey()
       return drop
 
     def _selected_box(self, img_bgr, signal=[]):
@@ -795,6 +795,7 @@ class Drop:
 
     @timeit
     def _process_box(self, img_col, i=0, scale=15, mask=None):
+      print('in _process_box')
       drop_color = None
       '''img_gray = np.uint8(img_gray_orig)
       #print(img_gray)
@@ -1029,15 +1030,17 @@ dropper = Drop()
     
 
 #def py_droprec(img, timestamp=0, y0=20, y1=570, x0=None, x1=None, signal=[]):
-#@timeit
-#def py_droprec(img, timestamp=0, signal=[], y0=None, y1=None, x0=None, x1=None):
+@timeit
+def py_droprec(img, timestamp=0, signal=[], y0=None, y1=None, x0=None, x1=None):
 #def py_droprec(img):
-def py_droprec():
+#def py_droprec():
+  #return '42\n65'
   print('in py_droprec')
+  print(img[0:2,0:2])
+  #print(img)
   dropper.flag_allboxes = 0
   dropper.flag_selectedbox = 1
   dropper.flag_skipwp = 1
-  return 'ce dupa'
   print('SZ droprec timestamp = {}, crop = [{}:{}, {}:{}], signal = {}'.format(timestamp, y0, y1, x0, x1, signal))
   signal_copy = signal[:]
   for s in signal_copy:
@@ -1054,6 +1057,7 @@ def py_droprec():
   #s = '\n'.join(['({}){}[{}]'.format(d[2], d[0], d[1]) for d in drop])
   s = '\n'.join('({}){}[{},{},{}]'.format(d[2], d[0], d[3], d[4], d[5]) for d in drop)
   #cv2.waitKey()
+  print('ce dupa')
   return s
 
 
