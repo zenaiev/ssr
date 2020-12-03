@@ -60,8 +60,10 @@ int Screenshot::do_screenshot(unsigned int h, unsigned int w, uint8_t *image_dat
 
 int Screenshot::to_python(unsigned int h, unsigned int w, uint8_t* image_data, int64_t timestamp)
 {
+  //return 0;
   if(init == 0)
   {
+    printf("dupa00\n");
     init = 1;
     setenv("PYTHONPATH",".",1);
     Py_Initialize ();
@@ -73,13 +75,14 @@ int Screenshot::to_python(unsigned int h, unsigned int w, uint8_t* image_data, i
     import_array();
   }
 
+  printf("dupa0\n");
   const char* path = "/home/zenaiev/games/Diablo2/502/screens/";
   //int ret = this->save_frame_as_jpeg(GetCodecContext(), packet->GetPacket(), nframe, path);
   cv::Mat img = cv::Mat(h, w, CV_8UC4, image_data);
-  char fname[256];
+  /*char fname[256];
   sprintf(fname, "%s/%ld.png", path, timestamp);
   cv::imwrite(fname, img);
-  printf("SZ pushed image = %s\n", fname);
+  printf("SZ pushed image = %s\n", fname);*/
 
   int row = 0;
   float *p = img.ptr<float>(row);
@@ -89,12 +92,14 @@ int Screenshot::to_python(unsigned int h, unsigned int w, uint8_t* image_data, i
   PyTuple_SetItem (pArgs, 0, py_array);
   PyTuple_SetItem (pArgs, 1, PyLong_FromLong(timestamp));
 
+  printf("dupa\n");
   if (PyCallable_Check (pFunc))
   {
     PyObject *py_ret = PyObject_CallObject(pFunc, pArgs);
     //PyObject* str = PyUnicode_AsEncodedString(repr, "utf-8", "~E~");
     PyObject* py_str = PyUnicode_AsEncodedString(py_ret, "utf-8", "~E~");
     const char *s = PyBytes_AS_STRING(py_str);
+    printf("s = %s\n", s);
     Logger::LogInfo(s);
     Py_DECREF (py_ret);
     Py_DECREF (py_str);

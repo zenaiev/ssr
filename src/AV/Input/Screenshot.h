@@ -15,8 +15,9 @@ class Screenshot
   public:
     static void check_screenshot(unsigned int h, unsigned int w, uint8_t *image_data, int64_t timestamp);
   private:
-    constexpr static int64_t timestamp_gap_pressed = 1;
-    constexpr static int64_t timestamp_gap = 10000000;
+    constexpr static int64_t timestamp_gap_pressed = 100;
+    //constexpr static int64_t timestamp_gap = 10000000;
+    constexpr static int64_t timestamp_gap = 1000000;
     constexpr static int verbosity = 1;
 
     static int64_t timestamp_last;
