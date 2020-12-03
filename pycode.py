@@ -297,9 +297,9 @@ class Drop:
           match = len(drop) == len(signal)
           if match:
             for i in range(len(signal)):
-              #print('i = {}'.format(i))
-              #print(signal[i])
-              #print(drop[i])
+              print('i = {}'.format(i))
+              print(signal[i])
+              print(drop[i])
               if signal[i][0] != drop[i][3] or signal[i][1] != drop[i][4] or signal[i][2] != drop[i][5] or signal[i][4] != drop[i][2] or signal[i][3] != drop[i][0]:
                 match = False
                 break
@@ -422,12 +422,9 @@ class Drop:
       b = cv2.filter2D(img, -1, np.matrix('-2; 1'), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)
       l = cv2.filter2D(img, -1, np.matrix('1 -2'), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)
       r = cv2.filter2D(img, -1, np.matrix('-2 1'), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)
-      diff_min = 10
-      r_3 = cv2.inRange(t, (-diff_min,-diff_min,-diff_min, -np.inf), (diff_min,diff_min,diff_min,+np.inf))
-      #print(r_3[100:110,100:110])
-      #r_3[np.where(r_3 != [0, 0, 0, 0])] = [255,255,255,255]
-      self._waypoint(r_3, 'r3', 1)
-      q
+      #diff_min = 10
+      #r_3 = cv2.inRange(t, (-diff_min,-diff_min,-diff_min, -np.inf), (diff_min,diff_min,diff_min,+np.inf))
+      #self._waypoint(r_3, 'r3', 1)
       _,r0 = cv2.threshold(np.sum(np.absolute(r), axis=2),20,1,cv2.THRESH_BINARY_INV)
       rnl = 2*cv2.filter2D(img, -1, np.matrix('-1 1 -1'), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)
       space = -1*cv2.filter2D(img, -1, np.matrix(';'.join(['1 '*10]*box_y)), anchor=(4,0), borderType=cv2.BORDER_ISOLATED)/10/box_y
@@ -1042,11 +1039,11 @@ class Drop:
 dropper = Drop()
     
 
-#def py_droprec(img, timestamp=0, y0=20, y1=570, x0=None, x1=None, signal=[]):
+#def py_droprec(mode, img, timestamp=0, y0=20, y1=570, x0=None, x1=None, signal=[]):
 @timeit
 def py_droprec(mode, img, timestamp=0, signal=[], y0=None, y1=None, x0=None, x1=None):
-#def py_droprec(img):
-#def py_droprec():
+#def py_droprec(mode, img):
+#def py_droprec(mode, ):
   #return '42\n65'
   #print('in py_droprec')
   #print(img[0:2,0:2])
@@ -1077,7 +1074,7 @@ def py_droprec(mode, img, timestamp=0, signal=[], y0=None, y1=None, x0=None, x1=
   #s = '\n'.join(['({}){}[{}]'.format(d[2], d[0], d[1]) for d in drop])
   #s = '\n'.join('({}){}[{},{},{}]'.format(d[2], d[0], d[3], d[4], d[5]) for d in drop)
   s = '\n'.join(dropper._get_coloured_item(d[0], d[2]) for d in drop)
-  print('returning {}'.format(s))
+  #print('returning {}'.format(s))
   #cv2.waitKey()
   #print('ce dupa')
   return s
@@ -1157,7 +1154,7 @@ def store_sig(img_name, rets, overwrite=False):
   print('signal written to {}'.format(sig_file))
 
 if __name__ == '__main__':
-  #py_droprec(cv2.imread('../../502/screens_1/95621693075.png'))
+  #py_droprec(mode, cv2.imread('../../502/screens_1/95621693075.png'))
   #a
   _do_time = 0
   atexit.register(print_all_time)
@@ -1193,27 +1190,28 @@ if __name__ == '__main__':
   dropper.flag_train = 0
   dropper.flag_mycheck = 0
   dropper.flag_textrec = 1
-  dropper.flag_allboxes = 0
-  dropper.flag_selectedbox = 1
+  dropper.flag_allboxes = 1
+  dropper.flag_selectedbox = 0
   dropper.flag_skipwp = 0
+  mode = 'test'
   if len(sys.argv) == 1:
-    #ret = py_droprec(cv2.imread('../../502/screens_1/95621693075.png'), y0=300, y1=345, x0=275, x1=465, signal=[[4+300, 10+275], [22+300, 62+275], [1+300, 1+275]])
-    #ret = py_droprec(cv2.imread('../158458820669.png'), signal=[[145,245,361,'Martel De Fer','y'],[145,363,553,GHP,'w'],[145,555,745,GHP,'w'],[160,221,319,'Tusk Sword','g'],[160,321,526,FRP,'w'],[175,232,408,GMP,'w'],[190,222,351,'Studded Leather','b'],[205,226,381,SMP,'w'],[220,249,425,GMP,'w'],[235,176,366,GHP,'w'],[251,270,403,'Conquest Sword','y'],[268,207,397,GHP,'w']])
+    #ret = py_droprec(mode, cv2.imread('../../502/screens_1/95621693075.png'), y0=300, y1=345, x0=275, x1=465, signal=[[4+300, 10+275], [22+300, 62+275], [1+300, 1+275]])
+    #ret = py_droprec(mode, cv2.imread('../158458820669.png'), signal=[[145,245,361,'Martel De Fer','y'],[145,363,553,GHP,'w'],[145,555,745,GHP,'w'],[160,221,319,'Tusk Sword','g'],[160,321,526,FRP,'w'],[175,232,408,GMP,'w'],[190,222,351,'Studded Leather','b'],[205,226,381,SMP,'w'],[220,249,425,GMP,'w'],[235,176,366,GHP,'w'],[251,270,403,'Conquest Sword','y'],[268,207,397,GHP,'w']])
     # trained
-    #ret = py_droprec(*get_img('../../502/screens_1/94456900671.png', signal=[[249,328,419,'Bone Wand','y'],[249,421,576,SMP,'w'],[249,578,783,FRP,'w'],[264,268,407,'Flawed Amethyst','w'],[264,409,574,RP,'w'],[279,307,476,SHP,'w'],[294,312,400,'Bone Shield','b'],[309,289,458,SHP,'w'],[324,326,491,RP,'w'],[339,244,434,GHP,'w'],[357,386,432,'Jewel','y'],[376,296,451,SMP,'w']]))
+    #ret = py_droprec(mode, *get_img('../../502/screens_1/94456900671.png', signal=[[249,328,419,'Bone Wand','y'],[249,421,576,SMP,'w'],[249,578,783,FRP,'w'],[264,268,407,'Flawed Amethyst','w'],[264,409,574,RP,'w'],[279,307,476,SHP,'w'],[294,312,400,'Bone Shield','b'],[309,289,458,SHP,'w'],[324,326,491,RP,'w'],[339,244,434,GHP,'w'],[357,386,432,'Jewel','y'],[376,296,451,SMP,'w']]))
     #
-    #ret = py_droprec(*get_img('../../502/screens_1/95217013080.png'))
-    #ret = py_droprec(*get_img('../../502/screens_1/94456900671.png'))
-    #ret = py_droprec(*get_img('../../502/screens_1/94778304482.png'))
+    #ret = py_droprec(mode, *get_img('../../502/screens_1/95217013080.png'))
+    #ret = py_droprec(mode, *get_img('../../502/screens_1/94456900671.png'))
+    #ret = py_droprec(mode, *get_img('../../502/screens_1/94778304482.png'))
     #
-    #ret = py_droprec(*get_img('../../502/screens_1/95509173077.png'))
-    #ret = py_droprec(*get_img('../../502/screens_1/97899599672.png'))
-    #ret = py_droprec(*get_img('../../502/screens_1/96566595942.png'))
-    #ret = py_droprec(*get_img('../../502/screens_1/95842955271.png'))
-    #ret = py_droprec(*get_img('../../502/screens_1/97200755937.png'))
+    ret = py_droprec(mode, *get_img('../../502/screens_1/95509173077.png'))
+    #ret = py_droprec(mode, *get_img('../../502/screens_1/97899599672.png'))
+    #ret = py_droprec(mode, *get_img('../../502/screens_1/96566595942.png'))
+    #ret = py_droprec(mode, *get_img('../../502/screens_1/95842955271.png'))
+    #ret = py_droprec(mode, *get_img('../../502/screens_1/97200755937.png'))
     # selected box
-    #ret = py_droprec(*get_img('../../502/screens_1/95637733084.png', signal=[[299,184,374,GHP,'w']]))
-    ret = py_droprec(*get_img('../../502/screens_1/96130115273.png'))
+    #ret = py_droprec(mode, *get_img('../../502/screens_1/95637733084.png', signal=[[299,184,374,GHP,'w']]))
+    #ret = py_droprec(mode, *get_img('../../502/screens_1/96130115273.png'))
     # blue
     # ../../502/screens_1/94778304482.png
     # ../../502/screens_1/96189675273.png
@@ -1231,7 +1229,7 @@ if __name__ == '__main__':
       print(img_name)
       #img = cv2.imread(img_name)
       timestamp = os.path.splitext(os.path.basename(img_name))[1]
-      ret = py_droprec(*get_img(img_name))
+      ret = py_droprec(mode, *get_img(img_name))
       print(ret)
       #store_sig(img_name, ret, overwrite=0)
   dropper.stats()
