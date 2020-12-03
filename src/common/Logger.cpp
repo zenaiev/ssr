@@ -53,18 +53,15 @@ void Logger::SetLogFile(const QString &filename) {
 	m_log_file.open(QFile::WriteOnly | QFile::Append | QFile::Text | QFile::Unbuffered);
 }
 
-//#include <iostream>
 void Logger::LogDrop(const QString& str) {
-	//std::cout << "str: " << str.toStdString() << std::endl;
-	printf("str: %s\n", str.toStdString().c_str());
+	//printf("str: %s\n", str.toStdString().c_str());
 	std::string stdstr = str.toStdString();
 	enum_type drop_type = TYPE_INFO;
 	QString qstr_no_color = str;
-	printf("stdstr.length(): %d\n", stdstr.length());
-	//if(stdstr.length() >= 9 && stdstr.substr(stdstr.length() - 1 - 4, stdstr.length() - 1) == std::string("\033[0m"))
+	//printf("stdstr.length(): %d\n", stdstr.length());
 	if(stdstr.length() >= 9 && stdstr.compare(stdstr.length() - 4, 4, "\033[0m") == 0)
 	{
-		printf("in if\n");
+		//printf("in if\n");
 		if(stdstr.compare(0, 5, "\033[91m") == 0)
 			drop_type = TYPE_INFO_GOLD;
 		else if(stdstr.compare(0, 5, "\033[94m") == 0)
