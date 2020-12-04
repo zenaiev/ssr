@@ -12,7 +12,8 @@ import pytesseract
 import sys
 import os
 import matplotlib
-matplotlib.use('Agg')
+#matplotlib.use('Agg')
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import random
@@ -181,26 +182,28 @@ class Drop:
             bkg_sample = random.sample(bkg, min(10000, len(bkg)))
             cut, bins = self._plot(title[i], [v[i] for v in sig], [v[i] for v in bkg_sample], bins, [1.0, 0.90], ax, col=['b','g','r', 'magenta'][delta_i%nchannels], store=store)
             cuts.append(cut)
-        if len(self.cuts) == len(cuts_xy):
+        '''if len(self.cuts) == len(cuts_xy):
           if any(a<b for a,b in zip(cuts_xy, self.cuts)):
             print('cuts_xy to be updated: {}'.format([a<b for a,b in zip(cuts_xy, self.cuts)]))
             cuts_xy = [min(a,b) for a,b in zip(cuts_xy, self.cuts)]
-            print('dropper.cuts = {}'.format([math.floor(c*1000)/1000.0 for c in cuts_xy]))
+            #print('dropper.cuts = {}'.format([math.floor(c*1000)/1000.0 for c in cuts_xy]))
           else:
-            print('cuts_xy are the same')
+            print('cuts_xy are consistent (but more strict cuts might be neeed)')
         else:
           print('cuts_xy are new')
-          print('dropper.cuts = {}'.format([math.floor(c*1000)/1000.0 for c in cuts_xy]))
-        if len(self.cuts_x1) == len(cuts_x1):
+          #print('dropper.cuts = {}'.format([math.floor(c*1000)/1000.0 for c in cuts_xy]))'''
+        print('dropper.cuts = {}'.format([math.floor(c*1000)/1000.0 for c in cuts_xy]))
+        '''if len(self.cuts_x1) == len(cuts_x1):
           if any(a<b for a,b in zip(cuts_x1, self.cuts_x1)):
             print('cuts_x1 to be updated: {}'.format([a<b for a,b in zip(cuts_x1, self.cuts_x1)]))
             cuts_x1 = [min(a,b) for a,b in zip(cuts_x1, self.cuts_x1)]
-            print('dropper.cuts_x1 = {}'.format([math.floor(c*1000)/1000.0 for c in cuts_x1]))
+            #print('dropper.cuts_x1 = {}'.format([math.floor(c*1000)/1000.0 for c in cuts_x1]))
           else:
-            print('cuts_x1 are the same')
+            print('cuts_x1 are consistent (but more strict cuts might be neeed)')
         else:
           print('cuts_x1 are new')
-          print('dropper.cuts_x1 = {}'.format([math.floor(c*1000)/1000.0 for c in cuts_x1]))
+          #print('dropper.cuts_x1 = {}'.format([math.floor(c*1000)/1000.0 for c in cuts_x1]))'''
+        print('dropper.cuts_x1 = {}'.format([math.floor(c*1000)/1000.0 for c in cuts_x1]))
         plt.show(block=False)
         cv2.waitKey()
         #print(self.cuts)
@@ -292,24 +295,27 @@ class Drop:
           #if i == 1: break
         print('drop {}: {}'.format(len(drop), drop))
         self._print_coloured(drop)
-        if len(signal) > 0:
-          #print(len(drop), len(signal))
-          match = len(drop) == len(signal)
-          if match:
-            for i in range(len(signal)):
-              print('i = {}'.format(i))
-              print(signal[i])
-              print(drop[i])
-              if signal[i][0] != drop[i][3] or signal[i][1] != drop[i][4] or signal[i][2] != drop[i][5] or signal[i][4] != drop[i][2] or signal[i][3] != drop[i][0]:
-                match = False
-                break
-          print('MATCH: {}'.format(match))
-          if match:
-            self.matched += 1
-          else:
-            self.notmatched += 1
+      elif not self.flag_train and not self.flag_textrec:
+        for y,l,r in zip(ys, ls, rs):
+          drop.append([None, None, None, y, l, r])
       for y,l,r in zip(ys, ls, rs):
         cv2.rectangle(img, (l-1, y-1), (r+1, y+self.box_height), (0, 255, 0), 1)
+      if len(signal) > 0:
+        #print(len(drop), len(signal))
+        match = len(drop) == len(signal)
+        if match:
+          for i in range(len(signal)):
+            #print('i = {}'.format(i))
+            #print(signal[i])
+            #print(drop[i])
+            if (signal[i][0] != drop[i][3] or signal[i][1] != drop[i][4] or signal[i][2] != drop[i][5]) or (self.flag_textrec and (signal[i][4] != drop[i][2] or signal[i][3] != drop[i][0])):
+              match = False
+              break
+        print('MATCH: {}'.format(match))
+        if match:
+          self.matched += 1
+        else:
+          self.notmatched += 1
       self._waypoint(img, 'output', 1)
       #if len(drop) > 0:
       #  cv2.waitKey()
@@ -360,7 +366,10 @@ class Drop:
       #  LG = '\033[92m'
       #  LY = '\033[93m'
       #  ENDC = '\033[0m'
-      return cols[col] + item + '\033[0m'
+      if item is None and col is None:
+        return ''
+      else:
+        return cols[col] + item + '\033[0m'
 
     def _print_coloured(self, drop):
       # {'u': 23.5, 'b': 119, 'o': 20, 'g': 120, 'y': 29}
@@ -413,6 +422,7 @@ class Drop:
       box_y = self.box_height
       #box_y = 6
       mar_l, mar_r, mar_t, mar_b = 4, 5, 2, 5
+      mar_r_box = 7
       #mar_l, mar_r, mar_t, mar_b = 2, 2, 2, 2
       min_sumrat = -500
       mean_bgr = np.mean(img, axis=(0,1))
@@ -482,16 +492,21 @@ class Drop:
       dxya = dxa + dya
       assert box_y > (mar_b+mar_t+1)
       assert box_x > (mar_l+mar_r+1)
+      #boxsum = [cv2.filter2D(dxya, -1, np.matrix(';'.join(['1 '*(box_x-mar_l-1)*i]*(box_y-mar_t-mar_b-1))), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(2*(box_x-mar_l-1)*i*(box_y-mar_b-mar_t-1)) for i in range(1,n_box_x+1)]
       boxsum = [cv2.filter2D(dxya, -1, np.matrix(';'.join(['1 '*(box_x-mar_l-1)*i]*(box_y-mar_t-mar_b-1))), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(2*(box_x-mar_l-1)*i*(box_y-mar_b-mar_t-1)) for i in range(1,n_box_x+1)]
       #maxrgb = lambda img: np.maximum(np.maximum(img[:, :, :1], img[:, :, 1:2]), img[:, :, 2:])
       #maxrgbv = lambda img: np.maximum(np.maximum(np.maximum(img[:, :, :1], img[:, :, 1:2]), img[:, :, 2:3]), img[:, :, 3:])
       maxrgbv = lambda img: np.amax(img, axis=2)
       boxsum = [maxrgbv(i) for i in boxsum]
       boxsum_max = self._max_img_from_list(boxsum)
+      boxrsum = maxrgbv(cv2.filter2D(dxya, -1, np.matrix(';'.join(['1 '*(mar_r_box-1)]*(box_y-mar_t-mar_b-1))), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(2*(mar_r_box-1)*(box_y-mar_b-mar_t-1)))
+      num_rows, num_cols = boxrsum.shape[:2]
+      translation_matrix = np.float32([ [1,0,mar_r+mar_r_box], [0,1,0] ])
+      boxrsum = cv2.warpAffine(boxrsum, translation_matrix, (num_cols,num_rows))
       marlsum = maxrgbv(cv2.filter2D(dxya, -1, np.matrix(';'.join(['1 '*(mar_l-1)]*(box_y-1))), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(2*(mar_l-1)*(box_y-1)))
       marrsum = cv2.filter2D(dxya, -1, np.matrix(';'.join(['1 '*(mar_r-1)]*(box_y-1))), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(2*(mar_r-1)*(box_y-1))
-      num_rows, num_cols = marrsum.shape[:2]
       translation_matrix = np.float32([ [1,0,mar_r-1], [0,1,0] ])
+      num_rows, num_cols = marrsum.shape[:2]
       marrsum = cv2.warpAffine(marrsum, translation_matrix, (num_cols,num_rows))
       marrsum = maxrgbv(marrsum)
       if len(self.vars_title) == 0:
@@ -546,6 +561,7 @@ class Drop:
         self.vars_title_x1 += ['rbmsumrat'+'['+c+']' for c in channels]
         self.vars_title_x1 += ['rbmasumrat'+'['+c+']' for c in channels]
         self.vars_title_x1 += ['marrsum']
+        self.vars_title_x1 += ['boxrsum']
         #
         #self.vars_title_x1 += ['r0sum']
         #self.vars_title_x1 += ['r0sum'+'['+c+']' for c in 'bgr']
@@ -566,6 +582,7 @@ class Drop:
         tuple(rbmsumrat[1+box_y-mar_b:-mar_b, :, c] for c in range(img.shape[2])) +
         tuple(rbmasumrat[1+box_y-mar_b:-mar_b, :, c] for c in range(img.shape[2])) +
         tuple((marrsum[1:-box_y, 0:-1]*-1,)) +
+        tuple((boxrsum[mar_t+1:-box_y+mar_t, 0:-1],)) +
         #
         #tuple((r0sum[1:-box_y, :-1],)) +
         #tuple(r0sum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
@@ -654,6 +671,7 @@ class Drop:
                 my_rasum = -1*sum(abs(-2*img[yy, x1]+img[yy, x1+1]) for yy in range(y+1, y+1+box_y))/box_y
                 my_rbmasum = -1*sum(abs(-2*img[yy, x1]+img[yy, x1+1]) for yy in range(y+1+box_y-mar_b, y+1+box_y))/mar_b
                 my_marrsum = max(self._calc_adxdysum(img, x1-mar_r+1, x1, y+1, y+box_y))*-1
+                my_boxrsum = max(self._calc_adxdysum(img, x1-mar_r-mar_r_box, x1-mar_r-1, y+1+mar_t, y+box_y-mar_b))
                 my_rnsum = sum(img[yy, x1+1] for yy in range(y+1, y+1+box_y))/box_y
                 my_rnlsum = 2*sum(-img[yy, x1]+img[yy, x1+1]-img[yy, x1+2] for yy in range(y+1, y+1+box_y))/box_y
                 my_rnlasum = -1*sum(abs(-img[yy, x1]+img[yy, x1+1]-img[yy, x1+2]) for yy in range(y+1, y+1+box_y))/box_y
@@ -665,7 +683,7 @@ class Drop:
                 my_ntasum = -1*sum(abs(img[y, xx]-2*img[y+1, xx]) for xx in range(x1+1, min(x1+1+box_x, img.shape[1])))/box_x
                 my_space = -1*sum(img[yy,xx] for xx in range(max(0,x1-4), min(x1+6, img.shape[1])) for yy in range(y+1, y+1+box_y))/10/box_y
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum])), [])
-                my_vars = sum((list(img) for img in (my_rsum, my_rasum, my_rsumrat, my_rasumrat, my_rbmsum, my_rbmasum, my_rbmsumrat, my_rbmasumrat, [my_marrsum])), [])
+                my_vars = sum((list(img) for img in (my_rsum, my_rasum, my_rsumrat, my_rasumrat, my_rbmsum, my_rbmasum, my_rbmsumrat, my_rbmasumrat, [my_marrsum], [my_boxrsum])), [])
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], [my_r0sum])), [])
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rnsum)), [])
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rnlsum, my_ntsum, my_rnlsum-my_ntsum)), [])
@@ -677,7 +695,7 @@ class Drop:
                 my_diff = [a-b for a,b in zip(my_vars, img_vars_x1[y, x1])]
                 #print(my_vars)
                 #print(img_vars_x1[y, x1])
-                if not all(abs(d) < 3e-5 for d in my_diff):
+                if not all(abs(d) < 1e-4 for d in my_diff):
                   print('img {}'.format(img_vars_x1[y, x1]))
                   print('my {}'.format(my_vars))
                   print('diff (len diff {}-{}={}): {}'.format(len(my_vars), len(img_vars_x1[y, x1]), len(my_vars)-len(img_vars_x1[y, x1]), my_diff))
@@ -691,10 +709,32 @@ class Drop:
             if sig[y, x] == 0:
               self.bkg.append(img_vars[y, x])
       else:
-        for y in range(sig.shape[0]-box_y):
+        for y in range(img_vars.shape[0]-box_y):
           x1_last = -1
-          for x in range(sig.shape[1]-box_x):
-            ret = self._check_box_at_xy(y, x, x1_last, box_x, sig, img_vars, img_vars_x1)
+          xl, xr = [], []
+          for x in range(img_vars.shape[1]-box_x):
+            if all(v >= (c-1e-5) for v,c in zip(img_vars[y, x], self.cuts)):
+              xl.append(x)
+          #print(box_x, sig.shape[1])
+          for x in range(box_x, img_vars_x1.shape[1]):
+            if all(v >= (c-1e-5) for v,c in zip(img_vars_x1[y, x], self.cuts_x1)):
+              xr.append(x)
+          if len(xr) == 0 or len(xl) == 0: continue
+          print('y,xl,xr: {} {} {}'.format(y,xl,xr))
+          xr = [r for r in xr[:-1] if (r+1) in xl] + [xr[-1]]
+          xl = [xl[0]] + [l for l in xl[1:] if (l-1) in xr]
+          if len(xr) == 0 or len(xl) == 0: continue
+          if xr[0] < xl[0]:
+            xr = xr[1:]
+          if xl[-1] > xr[-1]:
+            xl = xl[:-1]
+          assert len(xr) == len(xl)
+          for l,r in zip(xl,xr):
+            if y == 103 and l == 15 and r == 201: continue # ignore "players set" msg
+            ys.append(y)
+            xs.append(l)
+            x1s.append(r)
+            '''ret = self._check_box_at_xy(y, x, x1_last, box_x, sig, img_vars, img_vars_x1)
             if len(ret) > 0:
               #print(ret)
               for r in ret:
@@ -702,7 +742,7 @@ class Drop:
                 xs.append(r[1])
                 x1s.append(r[2])
               x1_last = x1s[-1]
-              #return (ys, xs, x1s)
+              #return (ys, xs, x1s)'''
       return (ys, xs, x1s)
     
     def _check_box_at_xy(self, y, x, x1_last, box_x, sig, img_vars, img_vars_x1):
@@ -1081,10 +1121,12 @@ def py_droprec(mode, img, timestamp=0, signal=[], y0=None, y1=None, x0=None, x1=
 
 
 image_types = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
-def list_files(basePath, validExts=None, contains=None):
+def list_files(basePath, validExts=None, contains=None, reversed=False):
     # loop over the directory structure
     for (rootDir, dirNames, filenames) in os.walk(basePath):
         # loop over the filenames in the current directory
+        if reversed:
+          filenames.reverse()
         for filename in filenames:
             # if the contains string is not none and the filename does not contain
             # the supplied string, then ignore the file
@@ -1100,13 +1142,13 @@ def list_files(basePath, validExts=None, contains=None):
                 imagePath = os.path.join(rootDir, filename)
                 yield imagePath
 
-def list_images(basePath, contains=None):
+def list_images(basePath, contains=None, reversed=False):
     print(basePath)
     if not os.path.isdir(basePath):
         #print('dupa')
         return [basePath]
     # return the set of files that are valid
-    return list_files(basePath, validExts=image_types, contains=contains)
+    return list_files(basePath, validExts=image_types, contains=contains, reversed=reversed)
 
 GHP = 'Greater Healing Potion'
 GMP = 'Greater Mana Potion'
@@ -1185,11 +1227,13 @@ if __name__ == '__main__':
   #dropper.cuts_x1 = [-63.438, -16.563, -13.188, -15.125, -63.438, -80.25, -111.125, -54.98, -44.499, -14.092, -13.325, -11.879, -90.875, -89.434, -79.431, -78.724, -23.076]
   #dropper.cuts = [-98.92, -33.936, -16.0, -50.162, -99.307, -66.388, -84.975, -51.273, -94.412, -88.906, -86.392, -91.833, -94.782, -89.387, -88.978, -92.332, -44.42, -6.091, -8.859, -7.405, -76.033, -57.673, -92.135, -37.248, -27.535, -10.804, -13.729, -13.371, -52.582, -49.359, -76.747, -39.063, -39.5, -30.375, -22.625, -30.146, -47.0, -178.875, -219.75, -148.542, -50.349, -54.019, -57.279, -54.318, -74.014, -77.197, -89.058, -79.225, -37.401, -20.0, -26.0, -19.534, -70.801, -184.601, -226.2, -153.801, -34.954, -28.468, -43.919, -33.25, -70.518, -72.393, -88.706, -60.314, 39.403, -19.089]
   #dropper.cuts_x1 = [-63.438, -16.563, -13.188, -15.125, -63.438, -80.25, -111.125, -54.98, -44.499, -14.092, -13.325, -11.879, -90.875, -89.434, -79.431, -78.724, -49.8, -32.401, -35.6, -28.867, -59.201, -87.6, -122.6, -53.467, -41.74, -39.131, -77.392, -52.754, -128.696, -127.827, -85.218, -111.885, -23.076]
-  dropper.cuts = [-98.92, -33.936, -16.0, -50.162, -99.307, -66.388, -84.975, -51.273, -94.412, -88.906, -86.392, -91.833, -94.782, -89.387, -88.978, -92.332, -44.42, -6.091, -8.859, -7.405, -76.033, -57.673, -92.135, -37.248, -27.535, -10.804, -13.729, -13.371, -58.738, -49.515, -76.747, -53.028, -39.5, -30.375, -22.625, -30.146, -52.563, -178.875, -219.75, -148.542, -50.349, -54.019, -57.279, -54.318, -74.014, -77.197, -89.058, -79.225, -37.401, -20.0, -26.0, -19.534, -70.801, -184.601, -226.2, -153.801, -34.954, -28.468, -43.919, -33.25, -71.429, -72.393, -88.706, -60.314, 38.007, -20.712]
-  dropper.cuts_x1 = [-63.438, -16.563, -15.438, -15.125, -63.438, -80.25, -111.125, -54.98, -44.499, -29.111, -27.66, -28.188, -100.519, -133.196, -128.071, -78.724, -56.0, -53.6, -52.401, -50.734, -65.6, -87.6, -122.6, -62.734, -479.167, -487.5, -166.667, -212.281, -500.0, -500.0, -366.667, -227.486, -35.617]
+  #dropper.cuts = [-98.92, -33.936, -16.0, -50.162, -99.307, -66.388, -84.975, -51.273, -94.412, -88.906, -86.392, -91.833, -94.782, -89.387, -88.978, -92.332, -44.42, -6.091, -8.859, -7.405, -76.033, -57.673, -92.135, -37.248, -27.535, -10.804, -13.729, -13.371, -58.738, -49.515, -76.747, -53.028, -39.5, -30.375, -22.625, -30.146, -52.563, -178.875, -219.75, -148.542, -50.349, -54.019, -57.279, -54.318, -74.014, -77.197, -89.058, -79.225, -37.401, -20.0, -26.0, -19.534, -70.801, -184.601, -226.2, -153.801, -34.954, -28.468, -43.919, -33.25, -71.429, -72.393, -88.706, -60.314, 38.007, -20.712]
+  #dropper.cuts_x1 = [-63.438, -16.563, -15.438, -15.125, -63.438, -80.25, -111.125, -54.98, -44.499, -29.111, -27.66, -28.188, -100.519, -133.196, -128.071, -78.724, -56.0, -53.6, -52.401, -50.734, -65.6, -87.6, -122.6, -62.734, -479.167, -487.5, -166.667, -212.281, -500.0, -500.0, -366.667, -227.486, -35.617]
+  dropper.cuts = [-7.162, -7.409, -10.484, -6.882, -38.839, -38.452, -36.323, -36.882, -11.502, -18.359, -13.91, -11.647, -89.891, -79.01, -65.544, -58.585, -7.265, -6.091, -8.859, -7.405, -21.942, -22.755, -26.394, -21.633, -16.059, -10.804, -13.729, -13.371, -58.738, -49.515, -58.053, -53.028, -39.5, -30.375, -22.625, -30.146, -52.563, -53.625, -49.25, -51.188, -50.349, -54.019, -57.279, -54.318, -74.014, -77.197, -84.811, -79.225, -37.401, -20.0, -26.0, -19.534, -70.801, -66.401, -47.8, -59.534, -34.954, -28.468, -43.919, -33.25, -71.429, -64.093, -71.429, -54.762, 38.007, -20.712]
+  dropper.cuts_x1 = [-15.625, -16.563, -15.438, -15.125, -48.438, -51.0, -46.625, -47.355, -31.777, -29.111, -27.66, -28.188, -100.519, -133.196, -128.071, -78.724, -56.0, -53.6, -52.401, -50.734, -65.6, -63.201, -59.401, -62.734, -479.167, -487.5, -166.667, -212.281, -500.0, -500.0, -366.667, -227.486, -35.617, 34.208]
   dropper.flag_train = 0
   dropper.flag_mycheck = 0
-  dropper.flag_textrec = 1
+  dropper.flag_textrec = 0
   dropper.flag_allboxes = 1
   dropper.flag_selectedbox = 0
   dropper.flag_skipwp = 0
@@ -1200,18 +1244,22 @@ if __name__ == '__main__':
     # trained
     #ret = py_droprec(mode, *get_img('../../502/screens_1/94456900671.png', signal=[[249,328,419,'Bone Wand','y'],[249,421,576,SMP,'w'],[249,578,783,FRP,'w'],[264,268,407,'Flawed Amethyst','w'],[264,409,574,RP,'w'],[279,307,476,SHP,'w'],[294,312,400,'Bone Shield','b'],[309,289,458,SHP,'w'],[324,326,491,RP,'w'],[339,244,434,GHP,'w'],[357,386,432,'Jewel','y'],[376,296,451,SMP,'w']]))
     #
-    #ret = py_droprec(mode, *get_img('../../502/screens_1/95217013080.png'))
-    #ret = py_droprec(mode, *get_img('../../502/screens_1/94456900671.png'))
-    #ret = py_droprec(mode, *get_img('../../502/screens_1/94778304482.png'))
-    #
+    ret = py_droprec(mode, *get_img('../../502/screens_1/95217013080.png'))
+    ret = py_droprec(mode, *get_img('../../502/screens_1/94456900671.png'))
     ret = py_droprec(mode, *get_img('../../502/screens_1/95509173077.png'))
-    #ret = py_droprec(mode, *get_img('../../502/screens_1/97899599672.png'))
-    #ret = py_droprec(mode, *get_img('../../502/screens_1/96566595942.png'))
-    #ret = py_droprec(mode, *get_img('../../502/screens_1/95842955271.png'))
-    #ret = py_droprec(mode, *get_img('../../502/screens_1/97200755937.png'))
+    ret = py_droprec(mode, *get_img('../../502/screens_1/97899599672.png'))
+    ret = py_droprec(mode, *get_img('../../502/screens_1/96566595942.png'))
+    ret = py_droprec(mode, *get_img('../../502/screens_1/95842955271.png'))
+    ret = py_droprec(mode, *get_img('../../502/screens_1/97200755937.png'))
     # selected box
     #ret = py_droprec(mode, *get_img('../../502/screens_1/95637733084.png', signal=[[299,184,374,GHP,'w']]))
     #ret = py_droprec(mode, *get_img('../../502/screens_1/96130115273.png'))
+    #ret = py_droprec(mode, *get_img('../../502/screens_1/94778304482.png'))
+    #ret = py_droprec(mode, *get_img('../../502/screens_1/98362279672.png'))
+    # horisontally separated by >1 pixel
+    #98492479671.png
+    #97496196391
+    #98231319675
     # blue
     # ../../502/screens_1/94778304482.png
     # ../../502/screens_1/96189675273.png
@@ -1223,13 +1271,13 @@ if __name__ == '__main__':
     # ../../502/screens_1/.png
     # ../../502/screens_1/.png
     # ../../502/screens_1/.png
-    print(ret)
+    #print(ret)
   else:
-    for img_name in list_images(sys.argv[1]):
+    for img_name in list_images(sys.argv[1], reversed=1):
       print(img_name)
       #img = cv2.imread(img_name)
       timestamp = os.path.splitext(os.path.basename(img_name))[1]
       ret = py_droprec(mode, *get_img(img_name))
-      print(ret)
+      #print(ret)
       #store_sig(img_name, ret, overwrite=0)
   dropper.stats()
