@@ -1,3 +1,4 @@
+from __future__ import print_function
 from os import write
 import pytesseract
 import numpy as np
@@ -100,6 +101,8 @@ class Drop:
       self.flag_selectedbox = False
       self.flag_allboxes = True
       self.flag_skipwp = False
+      self.flag_roottree = False
+      self.flag_nostats = False
       self.matched = 0
       self.notmatched = 0
       self.sig = []
@@ -149,10 +152,32 @@ class Drop:
       print('  --> {}'.format(item_new))
       #cv2.waitKey()
       return item_new
+    
+    def store_root_tree(self):
+      import ROOT
+      from array import array
+      fout = ROOT.TFile.Open('trees.root', 'recreate')
+      for tree_name,vars,vals in zip(['t_sig_xy', 't_sig_x1', 't_bkg_xy', 't_bkg_x1'], [self.vars_title, self.vars_title_x1, self.vars_title, self.vars_title_x1], [self.sig, self.sig_x1, self.bkg, self.bkg_x1]):
+        tree = ROOT.TTree(tree_name, tree_name)
+        tree.SetAutoSave(0)
+        tree_vars = [array('f', [0.0]) for _ in vars]
+        tree_brs = [tree.Branch(name, v, name+'/F') for name,v in zip([n.replace('[', '_').replace(']', '') for n in vars], tree_vars)]
+        for vs in vals:
+          for ivar in range(len(vs)):
+            #print(vs[ivar])
+            tree_vars[ivar][0] = vs[ivar]
+          tree.Fill()
+        tree.Write()
+      fout.Close()
 
     def stats(self):
       print('MATCHED/NOT {}/{}'.format(self.matched, self.notmatched))
       if self.flag_train:
+        if self.flag_roottree:
+          self.store_root_tree()
+          #aaa
+        if self.flag_nostats:
+          return
         cuts_xy, cuts_x1 = [], []
         print('{:20s}{:>18s}  {:>18s}  {:>5s} [{:>6s}]{:>8s}{:>8s}'.format('Variable', 'sig', 'bkg', 'cut', 'q', 'sig_egg', 'bkg_eff'))
         nchannels = 4
@@ -411,7 +436,10 @@ class Drop:
 
     @timeit
     def _boxes(self, img_bgr, signal=[]):
-      img = cv2.merge((*cv2.split(img_bgr), np.sum(img_bgr, axis=2)/3))
+      #img = cv2.merge((*cv2.split(img_bgr), np.sum(img_bgr, axis=2)/3))
+      splitted = cv2.split(img_bgr) + [np.sum(img_bgr, axis=2)/3]
+      #print(splitted)
+      img = cv2.merge(splitted)
       channels = 'bgrv'
       #print(img[0:2,0:2])
       assert img.shape[2] == 4 # bgr+val
@@ -599,6 +627,7 @@ class Drop:
       sig = np.zeros(img_vars.shape[0:2])
       #sig = np.zeros(img.shape[0:2])
       if self.flag_train:
+        assert len(signal)
         print_str = '{:4.0f}{:4.0f}{:4.0f}  {:25s}{:3s}' + '{:4.0f}'*len(self.vars_title) + '{:4.0f}'*len(self.vars_title_x1)
         print('Variables: {}'.format({iv: v for iv,v in enumerate(self.vars_title + self.vars_title_x1)}))
         print(print_str.replace('.0f}', 's}').replace('{:', '{:>').format('y','x0','x1','Drop','c',*('v'+str(i) for i in range(len(self.vars_title) + len(self.vars_title_x1)))))
@@ -645,7 +674,15 @@ class Drop:
               print('diff (len diff {}-{}={}): {}'.format(len(my_vars), len(img_vars[y, x]), len(my_vars)-len(img_vars[y, x]), my_diff))
               print('diffs are: {}'.format([(a,b) for t,a,b in zip([abs(d) < 1e-5 for d in my_diff], my_vars, img_vars[y, x]) if not t]))
               assert 0
-          print(print_str.format(*s, *img_vars[y, x], *img_vars_x1[y, x1]))
+          #print(print_str.format(*s, *img_vars[y, x], *img_vars_x1[y, x1]))
+          tmp1 = s
+          tmp2 = img_vars[y, x].tolist()
+          tmp3 = img_vars_x1[y, x1].tolist()
+          allargs = tmp1+tmp2+tmp3
+          #print('aaa')
+          #print(print_str)
+          #print(allargs)
+          print(print_str.format(*allargs))
           self.sig.append(img_vars[y, x])
           sig[y, x]
           ys.append(y)
@@ -924,25 +961,14 @@ class Drop:
       if mask is not None:
         th_tes = cv2.bitwise_and(th_tes, th_tes, mask=mask)
       th_tes = cv2.resize(th_tes, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-      #th_tes = cv2.resize(th_tes, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
-      #th_tes = cv2.medianBlur(th_tes, 27)
-      #th_tes = cv2.bilateralFilter(th_tes,9,75,75)
-      #self._waypoint(th_tes, 'tes_{:02d}'.format(i))
-      #item, conf = self._run_tesseract(th_tes)
       th_tes_mask,drop_color = self._text_thresh(th_tes, i)
-      #self._waypoint(th_tes_mask, 'mask1_{:02d}'.format(i), 1)
       th_tes_mask = cv2.bitwise_not(th_tes_mask)
-      #self._waypoint(th_tes_mask, 'mask2_{:02d}'.format(i), 1)
-      self._waypoint(th_tes_mask, 'tesin_{:02d}'.format(i), 0)
+      #self._waypoint(th_tes_mask, 'tesin_{:02d}'.format(i), 0)
       item, conf = self._run_tesseract(th_tes_mask)
       img_tesout = cv2.imread('tessinput.tif')
-      self._waypoint(img_tesout, 'tesout_{:02d}'.format(i), 0)
+      #self._waypoint(img_tesout, 'tesout_{:02d}'.format(i), 0)
       img_tesfg = cv2.bitwise_and(th_tes, th_tes, mask=cv2.bitwise_not(cv2.cvtColor(img_tesout, cv2.COLOR_BGR2GRAY)))
-      #img1 = th_tes = self._text_thresh([th_tes,img_tesfg])
-      #img1 = th_tes = self._text_thresh([th_tes])
-      self._waypoint(img_tesfg, 'tesfg_{:02d}'.format(i), 0)
-      #item, conf = self._run_tesseract(img1)
-      #drop_color = self._detect_color(img_tesfg)
+      #self._waypoint(img_tesfg, 'tesfg_{:02d}'.format(i), 0)
       return [item, conf, drop_color]
 
     def _text_thresh_hist(self, img):
@@ -1081,7 +1107,7 @@ dropper = Drop()
 
 #def py_droprec(mode, img, timestamp=0, y0=20, y1=570, x0=None, x1=None, signal=[]):
 @timeit
-def py_droprec(mode, img, timestamp=0, signal=[], y0=None, y1=None, x0=None, x1=None):
+def py_droprec(mode, img, timestamp=0, signal=[], img_name=None, y0=None, y1=None, x0=None, x1=None, flag_store_sig=False):
 #def py_droprec(mode, img):
 #def py_droprec(mode, ):
   #return '42\n65'
@@ -1117,13 +1143,22 @@ def py_droprec(mode, img, timestamp=0, signal=[], y0=None, y1=None, x0=None, x1=
   #print('returning {}'.format(s))
   #cv2.waitKey()
   #print('ce dupa')
+  if flag_store_sig:
+    store_sig(img_name, drop, overwrite=0)
+    cv2.waitKey()
   return s
 
 
 image_types = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
 def list_files(basePath, validExts=None, contains=None, reversed=False):
     # loop over the directory structure
+    #print(os.walk(basePath))
     for (rootDir, dirNames, filenames) in os.walk(basePath):
+        #print(rootDir)
+        #print(dirNames)
+        #print(filenames)
+        #continue
+        filenames.sort()
         # loop over the filenames in the current directory
         if reversed:
           filenames.reverse()
@@ -1141,9 +1176,10 @@ def list_files(basePath, validExts=None, contains=None, reversed=False):
                 # construct the path to the image and yield it
                 imagePath = os.path.join(rootDir, filename)
                 yield imagePath
+    #aaa
 
 def list_images(basePath, contains=None, reversed=False):
-    print(basePath)
+    #print(basePath)
     if not os.path.isdir(basePath):
         #print('dupa')
         return [basePath]
@@ -1169,6 +1205,8 @@ def get_img(img_name, signal=None):
       signal = []
       with open(sig_file) as f:
         for l in f.readlines():
+          if l[0] == '#' or len(l) <= 1:
+            continue
           y,x,x1,c = l.split(' ')[:4]
           item = ' '.join(l.split(' ')[4:]).rstrip()
           try:
@@ -1180,77 +1218,144 @@ def get_img(img_name, signal=None):
           signal.append([int(y), int(x), int(x1), item, c])
     else:
       signal = []
-  return img, timestamp, signal
+  return img, timestamp, signal, img_name
 
 def store_sig(img_name, rets, overwrite=False):
   sig_file = os.path.splitext(img_name)[0] + '.txt'
   if not overwrite and os.path.exists(sig_file):
+    print('skipping existing signal file {}'.format(sig_file))
+    #cv2.waitKey()
     return
   with open(sig_file, 'w') as fout:
-    for ret in rets.split('\n'):
+    for ret in rets:
       print(ret)
-      y,x,x1 = ret.split('[')[1][:-1].split(',')
-      item = ret.split(')')[1].split('[')[0]
-      col = ret[1]
+      #y,x,x1 = ret.split('[')[1][:-1].split(',')
+      #item = ret.split(')')[1].split('[')[0]
+      #col = ret[1]
+      item,_,col,y,x,x1 = ret
       fout.write('{} {} {} {} {}\n'.format(y, x, x1, col, item))
   print('signal written to {}'.format(sig_file))
+  #cv2.waitKey()
 
 if __name__ == '__main__':
+  import argparse
+  parser = argparse.ArgumentParser(description='d2 drop detection')
+  parser.add_argument('--train', '-t', action='store_true', help='train box detection')
+  parser.add_argument('--check', '-c', action='store_true', help='do my check of box variables')
+  parser.add_argument('--store_sig', action='store_true', help='store signal')
+  parser.add_argument('--textrec', action='store_true', help='do text recognition')
+  #parser.add_argument('--allboxes', action='store_false', help='do all boxes')
+  parser.add_argument('--selectedbox', action='store_true', help='do only selected box')
+  parser.add_argument('--skipwp', '-s', action='store_true', help='skip way points')
+  parser.add_argument('--mode', '-m', type=str, default='test', help='mode: test, newrun, append')
+  parser.add_argument('-i', nargs='+', help='input files')
+  parser.add_argument('-id', type=str, help='input directory')
+  parser.add_argument('-idskip', type=int, default=0, help='skip #idskip images from directory')
+  parser.add_argument('-idr', action='store_true', help='input directory (reversed)')
+  parser.add_argument('-i1', action='store_true', help='custom input')
+  parser.add_argument('--roottree', action='store_true', help='store ROOT tree')
+  parser.add_argument('--nostats', action='store_true', help='skip stats when training')
+  #parser.add_argument('--train', '-t', action='store_true', help='train box detection')
+  args = parser.parse_args()
+  #print(args.train)
+  #print(args.input, args.id)
+  #aaa
   #py_droprec(mode, cv2.imread('../../502/screens_1/95621693075.png'))
   #a
   _do_time = 0
   atexit.register(print_all_time)
   np.set_printoptions(threshold=np.inf, linewidth=np.inf)
-  #dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -5.096774, -4.1827955, -5.419355, -21.655914, -20.903225, -22.838709, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 44.62088, -19.088888]
-  #dropper.cuts_x1 = [-9.1875, -12.9375, -12.875, -32.25, -37.25, -44.0625, -16.022223]
-  #dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -7.2645164, -6.0903225, -8.858065, -21.941935, -22.754839, -26.393549, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 39.403847, -19.088888]
-  #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15]
-  #dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -7.2645164, -6.0903225, -8.858065, -21.941935, -22.754839, -26.393549, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 39.403847, -19.088888]
-  #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, -105.72177, -107.47177, -108.33064]
-  #dropper.cuts = [-33.548386, -34.322582, -23.290323, -40.870968, -39.967743, -36.322582, -33.741936, -37.032257, -43.35484, -35.35484, -39.225807, -50.064518, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 36.33173, -19.088888]
-  #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, -123.3, -124.725, -125.1125]
-  #dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -7.2645164, -6.0903225, -8.858065, -21.941935, -22.754839, -26.393549, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 39.403847, -19.088888]
-  #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, -105.72177, -107.47177, -108.33064]
-  #dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -7.2645164, -6.0903225, -8.858065, -21.941935, -22.754839, -26.393549, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 39.403847, -19.088888]
-  #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, 17.5, 26.0, 30.6875]
-  #dropper.cuts = [-7.16129, -7.0, -10.4838705, -38.83871, -38.451614, -36.322582, -7.2645164, -6.0903225, -8.858065, -21.941935, -22.754839, -26.393549, -39.5, -30.375, -22.625, -42.0, -33.625, -35.5, 39.403847, -19.088888]
-  #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -32.25, -37.25, -44.0625, -16.15, 1.0]
-  #dropper.cuts = [-7.16129, -7.0, -10.4838705, -6.8817225, -38.83871, -38.451614, -36.322582, -36.881725, -7.2645164, -6.0903225, -8.858065, -7.4043007, -21.941935, -22.754839, -26.393549, -21.632257, -39.5, -30.375, -22.625, -30.145834, -42.0, -33.625, -35.5, -32.14583, 39.403847, -19.088888]
-  #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -15.124999, -32.25, -37.25, -44.0625, -36.812496, -16.15]
-  #dropper.cuts = [-7.16129, -7.0, -10.4838705, -6.8817225, -38.83871, -38.451614, -36.322582, -36.881725, -7.2645164, -6.0903225, -8.858065, -7.4043007, -21.941935, -22.754839, -26.393549, -21.632257, -39.5, -30.375, -22.625, -30.145834, -42.0, -33.625, -35.5, -32.14583, 39.403847, -19.088888]
-  #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -15.124999, -32.25, -37.25, -44.0625, -36.812496, -16.15, -31.428572, -14.091219, -13.324709, -11.878683]
-  #dropper.cuts = [-7.16129, -7.0, -10.4838705, -6.8817225, -38.83871, -38.451614, -36.322582, -36.881725, -11.501648, -10.992908, -13.68421, -10.386243, -89.89042, -79.00921, -35.410526, -58.58474, 
-  #                -7.2645164, -6.0903225, -8.858065, -7.4043007, -21.941935, -22.754839, -26.393549, -21.632257, -16.058187, -10.803388, -13.728627, -13.370353, -52.581924, -49.029125, -40.905907, -39.062557,
-  #                 -39.5, -30.375, -22.625, -30.145834, -42.0, -33.625, -35.5, -32.14583, -50.348026, -54.018696, -57.278477, -54.317898, -74.013916, -77.196266, -84.81013, -79.22403, 39.403847, -19.088888]
-  #dropper.cuts_x1 = [-15.625, -16.5625, -13.1875, -15.124999, -32.25, -37.25, -44.0625, -36.812496, -31.428572, -14.091219, -13.324709, -11.878683, -90.87452, -89.43396, -79.430374, -78.7234, -16.15]
-  #dropper.cuts = [-98.92, -33.936, -16.0, -50.162, -99.307, -66.388, -84.975, -51.273, -94.412, -88.906, -86.392, -91.833, -94.782, -89.387, -88.978, -92.332, -44.42, -6.091, -8.859, -7.405, -76.033, -57.673, -92.135, -37.248, -27.535, -10.804, -13.729, -13.371, -52.582, -49.359, -76.747, -39.063, -39.5, -30.375, -22.625, -30.146, -47.0, -178.875, -219.75, -148.542, -50.349, -54.019, -57.279, -54.318, -74.014, -77.197, -89.058, -79.225, 39.403, -19.089]
-  #dropper.cuts_x1 = [-63.438, -16.563, -13.188, -15.125, -63.438, -80.25, -111.125, -54.98, -44.499, -14.092, -13.325, -11.879, -90.875, -89.434, -79.431, -78.724, -23.076]
-  #dropper.cuts = [-98.92, -33.936, -16.0, -50.162, -99.307, -66.388, -84.975, -51.273, -94.412, -88.906, -86.392, -91.833, -94.782, -89.387, -88.978, -92.332, -44.42, -6.091, -8.859, -7.405, -76.033, -57.673, -92.135, -37.248, -27.535, -10.804, -13.729, -13.371, -52.582, -49.359, -76.747, -39.063, -39.5, -30.375, -22.625, -30.146, -47.0, -178.875, -219.75, -148.542, -50.349, -54.019, -57.279, -54.318, -74.014, -77.197, -89.058, -79.225, -37.401, -20.0, -26.0, -19.534, -70.801, -184.601, -226.2, -153.801, -34.954, -28.468, -43.919, -33.25, -70.518, -72.393, -88.706, -60.314, 39.403, -19.089]
-  #dropper.cuts_x1 = [-63.438, -16.563, -13.188, -15.125, -63.438, -80.25, -111.125, -54.98, -44.499, -14.092, -13.325, -11.879, -90.875, -89.434, -79.431, -78.724, -49.8, -32.401, -35.6, -28.867, -59.201, -87.6, -122.6, -53.467, -41.74, -39.131, -77.392, -52.754, -128.696, -127.827, -85.218, -111.885, -23.076]
-  #dropper.cuts = [-98.92, -33.936, -16.0, -50.162, -99.307, -66.388, -84.975, -51.273, -94.412, -88.906, -86.392, -91.833, -94.782, -89.387, -88.978, -92.332, -44.42, -6.091, -8.859, -7.405, -76.033, -57.673, -92.135, -37.248, -27.535, -10.804, -13.729, -13.371, -58.738, -49.515, -76.747, -53.028, -39.5, -30.375, -22.625, -30.146, -52.563, -178.875, -219.75, -148.542, -50.349, -54.019, -57.279, -54.318, -74.014, -77.197, -89.058, -79.225, -37.401, -20.0, -26.0, -19.534, -70.801, -184.601, -226.2, -153.801, -34.954, -28.468, -43.919, -33.25, -71.429, -72.393, -88.706, -60.314, 38.007, -20.712]
-  #dropper.cuts_x1 = [-63.438, -16.563, -15.438, -15.125, -63.438, -80.25, -111.125, -54.98, -44.499, -29.111, -27.66, -28.188, -100.519, -133.196, -128.071, -78.724, -56.0, -53.6, -52.401, -50.734, -65.6, -87.6, -122.6, -62.734, -479.167, -487.5, -166.667, -212.281, -500.0, -500.0, -366.667, -227.486, -35.617]
-  dropper.cuts = [-7.162, -7.409, -10.484, -6.882, -38.839, -38.452, -36.323, -36.882, -11.502, -18.359, -13.91, -11.647, -89.891, -79.01, -65.544, -58.585, -7.265, -6.091, -8.859, -7.405, -21.942, -22.755, -26.394, -21.633, -16.059, -10.804, -13.729, -13.371, -58.738, -49.515, -58.053, -53.028, -39.5, -30.375, -22.625, -30.146, -52.563, -53.625, -49.25, -51.188, -50.349, -54.019, -57.279, -54.318, -74.014, -77.197, -84.811, -79.225, -37.401, -20.0, -26.0, -19.534, -70.801, -66.401, -47.8, -59.534, -34.954, -28.468, -43.919, -33.25, -71.429, -64.093, -71.429, -54.762, 38.007, -20.712]
-  dropper.cuts_x1 = [-15.625, -16.563, -15.438, -15.125, -48.438, -51.0, -46.625, -47.355, -31.777, -29.111, -27.66, -28.188, -100.519, -133.196, -128.071, -78.724, -56.0, -53.6, -52.401, -50.734, -65.6, -63.201, -59.401, -62.734, -479.167, -487.5, -166.667, -212.281, -500.0, -500.0, -366.667, -227.486, -35.617, 34.208]
-  dropper.flag_train = 0
-  dropper.flag_mycheck = 0
-  dropper.flag_textrec = 0
-  dropper.flag_allboxes = 1
-  dropper.flag_selectedbox = 0
-  dropper.flag_skipwp = 0
-  mode = 'test'
-  if len(sys.argv) == 1:
-    #ret = py_droprec(mode, cv2.imread('../../502/screens_1/95621693075.png'), y0=300, y1=345, x0=275, x1=465, signal=[[4+300, 10+275], [22+300, 62+275], [1+300, 1+275]])
-    #ret = py_droprec(mode, cv2.imread('../158458820669.png'), signal=[[145,245,361,'Martel De Fer','y'],[145,363,553,GHP,'w'],[145,555,745,GHP,'w'],[160,221,319,'Tusk Sword','g'],[160,321,526,FRP,'w'],[175,232,408,GMP,'w'],[190,222,351,'Studded Leather','b'],[205,226,381,SMP,'w'],[220,249,425,GMP,'w'],[235,176,366,GHP,'w'],[251,270,403,'Conquest Sword','y'],[268,207,397,GHP,'w']])
+  #dropper.cuts = [-7.162, -7.409, -10.484, -6.882, -38.839, -38.452, -36.323, -36.882, -11.502, -18.359, -13.91, -11.647, -89.891, -79.01, -65.544, -58.585, -7.265, -6.091, -8.859, -7.405, -21.942, -22.755, -26.394, -21.633, -16.059, -10.804, -13.729, -13.371, -58.738, -49.515, -58.053, -53.028, -39.5, -30.375, -22.625, -30.146, -52.563, -53.625, -49.25, -51.188, -50.349, -54.019, -57.279, -54.318, -74.014, -77.197, -84.811, -79.225, -37.401, -20.0, -26.0, -19.534, -70.801, -66.401, -47.8, -59.534, -34.954, -28.468, -43.919, -33.25, -71.429, -64.093, -71.429, -54.762, 38.007, -20.712]
+  #dropper.cuts_x1 = [-15.625, -16.563, -15.438, -15.125, -48.438, -51.0, -46.625, -47.355, -31.777, -29.111, -27.66, -28.188, -100.519, -133.196, -128.071, -78.724, -56.0, -53.6, -52.401, -50.734, -65.6, -63.201, -59.401, -62.734, -479.167, -487.5, -166.667, -212.281, -500.0, -500.0, -366.667, -227.486, -35.617, 34.208]
+  #dropper.cuts = [-72.813, -73.568, -74.755, -73.712, -85.794, -87.0, -89.633, -87.205, -91.058, -118.927, -103.931, -103.809, -101.501, -125.345, -107.187, -107.66, -13.42, -22.162, -75.694, -37.699, -113.962, -109.807, -104.678, -108.777, -41.773, -69.185, -103.675, -90.315, -109.564, -114.301, -115.795, -104.946, -108.25, -89.875, -102.813, -92.292, -117.125, -115.25, -106.938, -111.084, -209.179, -119.254, -135.169, -123.072, -226.329, -149.433, -140.592, -145.366, -144.801, -151.601, -148.0, -148.134, -144.801, -151.601, -148.0, -148.134, -246.429, -249.343, -250.0, -247.992, -300.0, -249.343, -300.0, -247.992, 23.545, -36.656]
+  #dropper.cuts_x1 = [-49.75, -48.375, -52.688, -48.792, -60.625, -68.875, -69.438, -64.584, -110.323, -140.765, -151.195, -138.017, -141.291, -149.254, -162.117, -148.596, -60.8, -56.8, -80.401, -53.934, -72.801, -69.0, -80.401, -69.934, -500.0, -500.0, -200.764, -238.145, -500.0, -500.0, -366.667, -238.145, -35.617, 16.437]
+  dropper.cuts = [-50]*4+[-50]*4+[-50]*4+[-50]*4+[-50]*4+[-50]*4+[-50]*4+[-50]*4+[-65]*4+[-65]*4+[-65]*4+[-65]*4+[-65]*4+[-65]*4+[-65]*4+[-65]*4+[30]+[-30]
+  dropper.cuts_x1 = [-65]*4+[-65]*4+[-65]*4+[-65]*4+[-60]*4+[-60]*4+[-60]*4+[-60]*4+[-30]+[25]
+  dropper.flag_train = args.train
+  dropper.flag_mycheck = args.check
+  #dropper.store_sig = args.store_sig
+  dropper.flag_textrec = args.textrec
+  #dropper.flag_allboxes = args.allboxes
+  dropper.flag_allboxes = not args.selectedbox
+  dropper.flag_selectedbox = args.selectedbox
+  dropper.flag_skipwp = args.skipwp
+  dropper.flag_roottree = args.roottree
+  dropper.flag_nostats = args.nostats
+  dropper.mode = args.mode
+  # checks
+  if dropper.flag_mycheck and not dropper.flag_train:
+    raise Exception("dropper.flag_mycheck = {} but dropper.flag_train = {}".format(dropper.flag_mycheck, dropper.flag_train))
+  if dropper.mode != 'test':
+    raise Exception('dropper.mode = {} but only test is supported'.format(dropper.mode))
+  # input
+  if args.i is not None:
+    for img_name in args.i:
+      ret = py_droprec(args.mode, *get_img(img_name), flag_store_sig=args.store_sig)
+  elif args.id is not None:
+    for img_name in list(list_images(args.id, reversed=(args.idr is not None)))[args.idskip:]:
+      #print(img_name)
+      timestamp = os.path.splitext(os.path.basename(img_name))[1]
+      ret = py_droprec(args.mode, *get_img(img_name), flag_store_sig=args.store_sig)
+  elif args.i1:
     # trained
-    #ret = py_droprec(mode, *get_img('../../502/screens_1/94456900671.png', signal=[[249,328,419,'Bone Wand','y'],[249,421,576,SMP,'w'],[249,578,783,FRP,'w'],[264,268,407,'Flawed Amethyst','w'],[264,409,574,RP,'w'],[279,307,476,SHP,'w'],[294,312,400,'Bone Shield','b'],[309,289,458,SHP,'w'],[324,326,491,RP,'w'],[339,244,434,GHP,'w'],[357,386,432,'Jewel','y'],[376,296,451,SMP,'w']]))
-    #
-    ret = py_droprec(mode, *get_img('../../502/screens_1/95217013080.png'))
-    ret = py_droprec(mode, *get_img('../../502/screens_1/94456900671.png'))
-    ret = py_droprec(mode, *get_img('../../502/screens_1/95509173077.png'))
-    ret = py_droprec(mode, *get_img('../../502/screens_1/97899599672.png'))
-    ret = py_droprec(mode, *get_img('../../502/screens_1/96566595942.png'))
-    ret = py_droprec(mode, *get_img('../../502/screens_1/95842955271.png'))
-    ret = py_droprec(mode, *get_img('../../502/screens_1/97200755937.png'))
+    ret = py_droprec(args.mode, *get_img('../../502/screens_1/94456900671.png'), flag_store_sig=args.store_sig)
+    ret = py_droprec(args.mode, *get_img('../../502/screens_1/97899599672.png'), flag_store_sig=args.store_sig)
+    ret = py_droprec(args.mode, *get_img('../../502/screens_1/96566595942.png'), flag_store_sig=args.store_sig)
+    ret = py_droprec(args.mode, *get_img('../../502/screens_1/97200755937.png'), flag_store_sig=args.store_sig)
+    # 12.12.20
+    for name in [
+      '../../502/screens_1/94456900671.png',
+      '../../502/screens_1/94778304482.png',
+      '../../502/screens_1/94792784454.png',
+      '../../502/screens_1/94807064450.png',
+      '../../502/screens_1/94821664460.png',
+      '../../502/screens_1/95040653079.png',
+      '../../502/screens_1/95055373030.png',
+      '../../502/screens_1/95069333082.png',
+      '../../502/screens_1/95082573077.png',
+      '../../502/screens_1/95098813077.png',
+      '../../502/screens_1/95113573081.png',
+      '../../502/screens_1/95127533078.png',
+      '../../502/screens_1/95144413080.png',
+      '../../502/screens_1/95160973083.png',
+      '../../502/screens_1/95174893079.png',
+      '../../502/screens_1/95189573078.png',
+      '../../502/screens_1/95203213094.png',
+      '../../502/screens_1/95217013080.png',
+      '../../502/screens_1/95231093091.png',
+      '../../502/screens_1/95334253084.png',
+      '../../502/screens_1/95363813081.png',
+      '../../502/screens_1/95378533080.png',
+      '../../502/screens_1/95394413082.png',
+      '../../502/screens_1/95441653079.png',
+      '../../502/screens_1/95454413125.png',
+      '../../502/screens_1/95468253078.png',
+      '../../502/screens_1/95482173079.png',
+      '../../502/screens_1/95509173077.png',
+      '../../502/screens_1/95522493084.png',
+      '../../502/screens_1/95536213082.png',
+      '../../502/screens_1/95551813087.png',
+      '../../502/screens_1/95566653078.png',
+      '../../502/screens_1/95580253079.png',
+      '../../502/screens_1/95594893077.png',
+      '../../502/screens_1/95621693075.png',
+      '../../502/screens_1/95637733084.png',
+      '../../502/screens_1/95654173080.png',
+      '../../502/screens_1/95668773085.png',
+      '../../502/screens_1/95683333079.png',
+      '../../502/screens_1/95698493078.png',
+      '../../502/screens_1/95711893082.png',
+      '../../502/screens_1/95725453079.png',
+      '../../502/screens_1/95739693084.png',
+      '../../502/screens_1/95752613083.png',
+      '../../502/screens_1/95766973080.png',
+      '../../502/screens_1/95814795284.png',
+      '../../502/screens_1/95828355272.png',
+      '../../502/screens_1/95842955271.png',
+      '../../502/screens_1/95855915280.png',
+    ]:
+      ret = py_droprec(args.mode, *get_img(name), flag_store_sig=args.store_sig)
+    # 95113573081
     # selected box
     #ret = py_droprec(mode, *get_img('../../502/screens_1/95637733084.png', signal=[[299,184,374,GHP,'w']]))
     #ret = py_droprec(mode, *get_img('../../502/screens_1/96130115273.png'))
@@ -1260,24 +1365,6 @@ if __name__ == '__main__':
     #98492479671.png
     #97496196391
     #98231319675
-    # blue
-    # ../../502/screens_1/94778304482.png
-    # ../../502/screens_1/96189675273.png
-    # ../../502/screens_1/98011159677.png
-    # ../../502/screens_1/98362279672.png
-    # ../../502/screens_1/96495515941.png
-    # ../../502/screens_1/98492479671.png
-    # ../../502/screens_1/97327835937.png
-    # ../../502/screens_1/.png
-    # ../../502/screens_1/.png
-    # ../../502/screens_1/.png
-    #print(ret)
   else:
-    for img_name in list_images(sys.argv[1], reversed=1):
-      print(img_name)
-      #img = cv2.imread(img_name)
-      timestamp = os.path.splitext(os.path.basename(img_name))[1]
-      ret = py_droprec(mode, *get_img(img_name))
-      #print(ret)
-      #store_sig(img_name, ret, overwrite=0)
+    assert 0
   dropper.stats()
