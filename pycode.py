@@ -111,8 +111,11 @@ class Drop:
       self.bkg_x1 = []
       self.cuts = []
       self.cuts_x1 = []
+      self.imgs = 0
       self.vars_title = []
       self.vars_title_x1 = []
+      self.tmva = None
+      self.filter_bkg = False
       #self.cuts = {}
       self._config_spellchecker()
 
@@ -154,6 +157,11 @@ class Drop:
       return item_new
     
     def store_root_tree(self):
+      if self.filter_bkg: 
+        for s in self.sig:
+          assert all(v >= (c-1e-5) for v,c in zip(s, self.cuts))
+        for s in self.sig_x1:
+          assert all(v >= (c-1e-5) for v,c in zip(s, self.cuts_x1))
       import ROOT
       from array import array
       fout = ROOT.TFile.Open('trees.root', 'recreate')
@@ -168,7 +176,45 @@ class Drop:
             tree_vars[ivar][0] = vs[ivar]
           tree.Fill()
         tree.Write()
+        print('stored tree {} with {} events in {}'.format(tree.GetName(), tree.GetEntries(), fout.GetName()))
       fout.Close()
+    
+    def prepare_tmva(self):
+      import tmva_train
+      self.tmva_reader_xy, self.tmva_vars_xy, self.cuts = tmva_train.prepare_reader(prefix='tmva_xy_new')
+      self.tmva_reader_x1, self.tmva_vars_x1, self.cuts_x1 = tmva_train.prepare_reader(prefix='tmva_x1_new')
+      self.cuts = [float(v.split('=')[1]) for v in self.cuts.split('&&')]
+      self.cuts_x1 = [float(v.split('=')[1]) for v in self.cuts_x1.split('&&')]
+      #print('self.cuts = {}'.format(self.cuts))
+
+    def check_tmva(self, img_vars, mode):
+      if self.tmva is None:
+        return True
+      tmva_vars, tmva_reader, tmva_cut = None, None, None
+      if mode == 'xy':
+        tmva_vars = self.tmva_vars_xy
+        tmva_reader = self.tmva_reader_xy
+        tmva_cut = float(self.tmva[0]) if len(self.tmva) >= 1 else -0.35
+      elif mode == 'x1':
+        tmva_vars = self.tmva_vars_x1
+        tmva_reader = self.tmva_reader_x1
+        tmva_cut = float(self.tmva[1]) if len(self.tmva) >= 2 else -0.35
+      #print('tmva_cut = {} mode = {}'.format(tmva_cut, mode))
+      for iv,v in enumerate(tmva_vars):
+        tmva_vars[iv][0] = img_vars[iv]
+      bdt = tmva_reader.EvaluateMVA('BDT method')
+      #print('bdt = {}'.format(bdt))
+      return (bdt > tmva_cut)
+
+    def _update_cuts(self):
+      if not hasattr(self, 'cuts') or self.cuts is None or len(self.cuts) == 0:
+        self.cuts = [1e6 for _ in self.vars_title]
+        self.cuts_x1 = [1e6 for _ in self.vars_title_x1]
+      self.cuts = [min([self.cuts[iv]] + [s[iv] for s in self.sig]) for iv,_ in enumerate(self.sig[0])]
+      self.cuts_x1 = [min([self.cuts_x1[iv]] + [s[iv] for s in self.sig_x1]) for iv,_ in enumerate(self.sig_x1[0])]
+      print('updating cuts #{} using {} sig and {} bkg events'.format(self.imgs, len(self.sig), len(self.bkg)))
+      print('updated dropper.cuts = {}'.format(self.cuts))
+      print('updated dropper.cuts_x1 = {}'.format(self.cuts_x1))
 
     def stats(self):
       print('MATCHED/NOT {}/{}'.format(self.matched, self.notmatched))
@@ -281,16 +327,20 @@ class Drop:
     
     @timeit
     def process_drop(self, img, signal=[]):
+      if self.imax >= 0 and dropper.imgs >= self.imax:
+        return []
+      dropper.imgs += 1
       #self._waypoint(self.img_orig, 'orig')
       #self._waypoint(img, 'input')
       if self.flag_selectedbox:
         ys, ls, rs, mask = self._selected_box(img, signal)
       elif self.flag_allboxes:
         img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         #img_gray = np.int16(img_gray)
         img_gray = np.float32(img_gray)
         img_float = np.float32(img)
-        ys, ls, rs = self._boxes(img_float, signal=signal)
+        ys, ls, rs = self._boxes(img_float, img_hsv, signal=signal)
         mask = None
       ys = [y+1 for y in ys]
       ls = [y+1 for y in ls]
@@ -434,8 +484,45 @@ class Drop:
       rat[np.where(np.isinf(img))] = -255
       return rat
 
+    def is_blacklist_xy(self, x, y):
+      #if y+1 == 104 or y+1 == 119 and x+1 == 15 or x+1 == 4:
+      #  return True
+      if y+1 == 104 or y+1 == 119 and x < 300:
+        return True
+      return False
+
+    def is_blacklist_x1(self, x, y):
+      #if y+1 == 104 and x > 180 and x < 220 or y+1 == 119 and x > 250 and x < 320:
+      #  return True
+      if y+1 == 104 or y+1 == 119 and x < 300:
+        return True
+      return False
+
+    def _filter_color(self, hsv, col):
+      # cols = {'u': 23.5, 'b': 119, 'o': 20, 'g': 120, 'y': 29}
+      val_min, val_max = 204, 209
+      if col == 'w':
+        filt = cv2.inRange(hsv, (0,0,val_min), (180,1,val_max))
+      elif col == 'u':
+        filt = cv2.inRange(hsv, (21,92,150), (26,117,168))
+      elif col == 'b':
+        filt = cv2.inRange(hsv, (112,143,val_min), (126,163,val_max))
+      elif col == 'o':
+        filt = cv2.inRange(hsv, (17,255,val_min), (21,255,val_max))
+      elif col == 'g':
+        filt = cv2.inRange(hsv, (59,255,val_min), (61,255,val_max))
+      elif col == 'y':
+        filt = cv2.inRange(hsv, (27,143,val_min), (31,163,val_max))
+      filt[np.where(filt != 0)] = 255
+      filt = np.float32(filt)
+      #print('col {}: {}'.format(col, cv2.countNonZero(filt)))
+      #self._waypoint(filt, label='col_{}'.format(col), wait=1)
+      return filt
+
     @timeit
-    def _boxes(self, img_bgr, signal=[]):
+    def _boxes(self, img_bgr, img_hsv, signal=[]):
+      if self.tmva is not None and not hasattr(self, 'tmva_reader_xy'):
+        self.prepare_tmva()
       #img = cv2.merge((*cv2.split(img_bgr), np.sum(img_bgr, axis=2)/3))
       splitted = cv2.split(img_bgr) + [np.sum(img_bgr, axis=2)/3]
       #print(splitted)
@@ -450,7 +537,8 @@ class Drop:
       box_y = self.box_height
       #box_y = 6
       mar_l, mar_r, mar_t, mar_b = 4, 5, 2, 5
-      mar_r_box = 7
+      mar_r_box, mar_r_box_large = 7, 30
+      mar_l_box, mar_l_box_large = 7, 30
       #mar_l, mar_r, mar_t, mar_b = 2, 2, 2, 2
       min_sumrat = -500
       mean_bgr = np.mean(img, axis=(0,1))
@@ -537,6 +625,21 @@ class Drop:
       num_rows, num_cols = marrsum.shape[:2]
       marrsum = cv2.warpAffine(marrsum, translation_matrix, (num_cols,num_rows))
       marrsum = maxrgbv(marrsum)
+      #print(img_bgr[150:160, 150:160])
+      #img_hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+      #print(img_hsv[267:271,271:275])
+      #aaa
+      cols = ['w', 'u', 'b', 'o', 'g', 'y']
+      #cols = ['w']
+      img_hsv_filt = {col: self._filter_color(img_hsv, col) for col in cols}
+      #hsv_r = self._max_img_from_list([cv2.filter2D(img_hsv_filt[col], -1, np.matrix(';'.join(['1 '*(mar_r_box-1)]*(box_y-mar_t-mar_b-1))), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(2*(mar_r_box-1)*(box_y-mar_b-mar_t-1)) for col in cols])
+      #translation_matrix = np.float32([ [1,0,mar_r+mar_r_box], [0,1,0] ])
+      hsv_l = self._max_img_from_list([cv2.filter2D(img_hsv_filt[col], -1, np.matrix(';'.join(['1 '*(mar_l_box)]*(box_y-mar_t-mar_b))), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(1.*(mar_l_box)*(box_y-mar_b-mar_t)) for col in cols])
+      hsv_l_large = self._max_img_from_list([cv2.filter2D(img_hsv_filt[col], -1, np.matrix(';'.join(['1 '*(mar_l_box_large)]*(box_y-mar_t-mar_b))), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(1.*(mar_l_box_large)*(box_y-mar_b-mar_t)) for col in cols])
+      hsv_r = self._max_img_from_list([cv2.filter2D(img_hsv_filt[col], -1, np.matrix(';'.join(['1 '*(mar_r_box)]*(box_y-mar_t-mar_b))), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(1.*(mar_r_box)*(box_y-mar_b-mar_t)) for col in cols])
+      hsv_r = np.float32(cv2.warpAffine(hsv_r, np.float32([ [1,0,mar_r+mar_r_box-1], [0,1,0] ]), (hsv_r.shape[1], hsv_r.shape[0])))
+      hsv_r_large = self._max_img_from_list([cv2.filter2D(img_hsv_filt[col], -1, np.matrix(';'.join(['1 '*(mar_r_box_large)]*(box_y-mar_t-mar_b))), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(1.*(mar_r_box_large)*(box_y-mar_b-mar_t)) for col in cols])
+      hsv_r_large = np.float32(cv2.warpAffine(hsv_r_large, np.float32([ [1,0,mar_r+mar_r_box_large-1], [0,1,0] ]), (hsv_r_large.shape[1], hsv_r_large.shape[0])))
       if len(self.vars_title) == 0:
         self.vars_title += ['tsum_max'+'['+c+']' for c in channels]
         self.vars_title += ['tasum_max'+'['+c+']' for c in channels]
@@ -556,7 +659,12 @@ class Drop:
         self.vars_title += ['lbmasumrat'+'['+c+']' for c in channels]
         self.vars_title += ['boxsum_max']
         self.vars_title += ['marlsum']
+        self.vars_title += ['hsv_l']
+        self.vars_title += ['hsv_l_large']
+        #self.vars_title += ['pix_hsv_r']
       #print(tsum_max[:-box_y-1, 1:-box_x, 0].shape, tsumrat_max[:-box_y-1, 1:-box_x, 0].shape, bsum_max[box_y:-1, 1:-box_x, 0].shape, bsumrat_max[box_y:-1, 1:-box_x, 0].shape)
+      #print(marlsum[1:-box_y, 1:-box_x].shape)
+      #print(hsv_l[mar_t+1:-box_y+mar_t, mar_l+1:-box_x+mar_l].shape)
       img_vars = cv2.merge(
         () +
         tuple(tsum_max[:-box_y-1, 1:-box_x, c] for c in range(img.shape[2])) +
@@ -577,6 +685,8 @@ class Drop:
         tuple(lbmasumrat[1+box_y-mar_b:-mar_b, :-box_x, c] for c in range(img.shape[2])) +
         tuple((boxsum_max[mar_t+1:-box_y+mar_t, mar_l+1:-box_x+mar_l],)) +
         tuple((marlsum[1:-box_y, 1:-box_x]*-1,)) +
+        tuple((hsv_l[mar_t+1:-box_y+mar_t, mar_l+1:-box_x+mar_l],)) +
+        tuple((hsv_l_large[mar_t+1:-box_y+mar_t, mar_l+1:-box_x+mar_l],)) +
       ())
       #print(img[0:3, 0:3])
       if len(self.vars_title_x1) == 0:
@@ -590,6 +700,8 @@ class Drop:
         self.vars_title_x1 += ['rbmasumrat'+'['+c+']' for c in channels]
         self.vars_title_x1 += ['marrsum']
         self.vars_title_x1 += ['boxrsum']
+        self.vars_title_x1 += ['hsv_r']
+        self.vars_title_x1 += ['hsv_r_large']
         #
         #self.vars_title_x1 += ['r0sum']
         #self.vars_title_x1 += ['r0sum'+'['+c+']' for c in 'bgr']
@@ -599,6 +711,8 @@ class Drop:
         #self.vars_title_x1 += ['rnlmntsum'+'['+c+']' for c in 'bgr']
         #self.vars_title_x1 += ['rnlmntasum'+'['+c+']' for c in 'bgr']
         #self.vars_title_x1 += ['space'+'['+c+']' for c in 'bgr']
+      #print(boxrsum.shape)
+      #print(hsv_r.shape)
       img_vars_x1 = cv2.merge(
         () +
         tuple(rsum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
@@ -611,6 +725,8 @@ class Drop:
         tuple(rbmasumrat[1+box_y-mar_b:-mar_b, :, c] for c in range(img.shape[2])) +
         tuple((marrsum[1:-box_y, 0:-1]*-1,)) +
         tuple((boxrsum[mar_t+1:-box_y+mar_t, 0:-1],)) +
+        tuple((hsv_r[mar_t+1:-box_y+mar_t, 0:-1],)) +
+        tuple((hsv_r_large[mar_t+1:-box_y+mar_t, 0:-1],)) +
         #
         #tuple((r0sum[1:-box_y, :-1],)) +
         #tuple(r0sum[1:-box_y, :-1, c] for c in range(img.shape[2])) +
@@ -666,7 +782,9 @@ class Drop:
             my_lbmasumrat = np.clip(my_lbmasumrat, min_sumrat, np.inf)
             my_boxsum = max(self._calc_adxdysum(img, x+1+mar_l, x+box_x, y+1+mar_t, y+box_y-mar_b))
             my_marlsum = max(self._calc_adxdysum(img, x+1, x+mar_l, y+1, y+box_y))*-1
-            my_vars = sum((list(img) for img in (my_tsum, my_tasum, my_tsumrat, my_tasumrat, my_bsum, my_basum, my_bsumrat, my_basumrat, my_lsum, my_lasum, my_lsumrat, my_lasumrat, my_lbmsum, my_lbmasum, my_lbmsumrat, my_lbmasumrat, [my_boxsum], [my_marlsum])), [])
+            my_hsv_l = max(sum(img_hsv_filt[col][yy, xx] for yy in range(y+1+mar_t, y+1+box_y-mar_b) for xx in range(x+mar_l+1,x+mar_l+1+mar_l_box)) for col in cols)/(1.*(mar_l_box)*(box_y-mar_b-mar_t))
+            my_hsv_l_large = max(sum(img_hsv_filt[col][yy, xx] for yy in range(y+1+mar_t, y+1+box_y-mar_b) for xx in range(x+mar_l+1,x+mar_l+1+mar_l_box_large)) for col in cols)/(1.*(mar_l_box_large)*(box_y-mar_b-mar_t))
+            my_vars = sum((list(img) for img in (my_tsum, my_tasum, my_tsumrat, my_tasumrat, my_bsum, my_basum, my_bsumrat, my_basumrat, my_lsum, my_lasum, my_lsumrat, my_lasumrat, my_lbmsum, my_lbmasum, my_lbmsumrat, my_lbmasumrat, [my_boxsum], [my_marlsum], [my_hsv_l], [my_hsv_l_large])), [])
             my_diff = [a-b for a,b in zip(my_vars, img_vars[y, x])]
             if not all(abs(d) < 3e-5 for d in my_diff):
               print('img {}'.format(img_vars[y, x]))
@@ -713,6 +831,13 @@ class Drop:
                 my_rnlsum = 2*sum(-img[yy, x1]+img[yy, x1+1]-img[yy, x1+2] for yy in range(y+1, y+1+box_y))/box_y
                 my_rnlasum = -1*sum(abs(-img[yy, x1]+img[yy, x1+1]-img[yy, x1+2]) for yy in range(y+1, y+1+box_y))/box_y
                 my_ntsum = sum(img[y, xx]-2*img[y+1, xx] for xx in range(x1+1, min(x1+1+box_x, img.shape[1])))/box_x
+                #my_hsv_r = max(sum(img_hsv_filt[col][yy, xx1] for yy in range(y+1+mar_t, y+1+box_y-mar_b) for xx1 in range(x1-mar_r_box-mar_r+1,x1-mar_r)) for col in cols)/(2.*(mar_r_box-1)*(box_y-mar_b-mar_t-1))
+                my_hsv_r = max(sum(img_hsv_filt[col][yy, xx1] for yy in range(y+1+mar_t, y+1+box_y-mar_b) for xx1 in range(x1-mar_r-mar_r_box+1,x1-mar_r+1)) for col in cols)/(1.*(mar_r_box)*(box_y-mar_b-mar_t))
+                my_hsv_r_large = max(sum(img_hsv_filt[col][yy, xx1] for yy in range(y+1+mar_t, y+1+box_y-mar_b) for xx1 in range(x1-mar_r-mar_r_box_large+1,x1-mar_r+1)) for col in cols)/(1.*(mar_r_box_large)*(box_y-mar_b-mar_t))
+                #my_hsv_r = max(sum(img_hsv_filt[col][yy, xx1] for yy in range(y+1+mar_t, y+1+box_y-mar_b) for xx1 in range(x1-mar_r-mar_r_box+1,x1-mar_r+1)) for col in cols)/255.
+                #print('xx1: {}, {}'.format(x1-mar_r-mar_r_box+1,x1-mar_r+1))
+                #print(my_hsv_r)
+                #aaa
                 #if y == 278 and x == 306 and x1_scan == 476:
                 #  l = [img[y, xx]-2*img[y+1, xx] for xx in range(x1+1, min(x1+1+box_x, img.shape[1]))]
                 #  print(len(l), sum(l), sum(l)/box_x, l)
@@ -720,7 +845,7 @@ class Drop:
                 my_ntasum = -1*sum(abs(img[y, xx]-2*img[y+1, xx]) for xx in range(x1+1, min(x1+1+box_x, img.shape[1])))/box_x
                 my_space = -1*sum(img[yy,xx] for xx in range(max(0,x1-4), min(x1+6, img.shape[1])) for yy in range(y+1, y+1+box_y))/10/box_y
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum])), [])
-                my_vars = sum((list(img) for img in (my_rsum, my_rasum, my_rsumrat, my_rasumrat, my_rbmsum, my_rbmasum, my_rbmsumrat, my_rbmasumrat, [my_marrsum], [my_boxrsum])), [])
+                my_vars = sum((list(img) for img in (my_rsum, my_rasum, my_rsumrat, my_rasumrat, my_rbmsum, my_rbmasum, my_rbmsumrat, my_rbmasumrat, [my_marrsum], [my_boxrsum], [my_hsv_r], [my_hsv_r_large])), [])
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], [my_r0sum])), [])
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rnsum)), [])
                 #my_vars = sum((list(img) for img in (my_rsum, my_rasum, [my_marrsum], my_rnlsum, my_ntsum, my_rnlsum-my_ntsum)), [])
@@ -740,22 +865,30 @@ class Drop:
                   assert 0
               self.sig_x1.append(img_vars_x1[y, x1_scan])
             else:
-              self.bkg_x1.append(img_vars_x1[y, x1_scan])
+              if not self.is_blacklist_xy(x1_scan, y):
+                if not self.filter_bkg or all(v >= (c-1e-5) for v,c in zip(img_vars_x1[y, x1_scan], self.cuts_x1)):
+                  self.bkg_x1.append(img_vars_x1[y, x1_scan])
         for x in range(sig.shape[1]):
           for y in range(sig.shape[0]):
-            if sig[y, x] == 0:
-              self.bkg.append(img_vars[y, x])
+            if sig[y, x] == 0 and not self.is_blacklist_xy(x, y):
+              if not self.filter_bkg or all(v >= (c-1e-5) for v,c in zip(img_vars[y, x], self.cuts)):
+                self.bkg.append(img_vars[y, x])
+        self._update_cuts()
       else:
         for y in range(img_vars.shape[0]-box_y):
           x1_last = -1
           xl, xr = [], []
           for x in range(img_vars.shape[1]-box_x):
             if all(v >= (c-1e-5) for v,c in zip(img_vars[y, x], self.cuts)):
-              xl.append(x)
+              if self.check_tmva(img_vars[y, x], 'xy'):
+                if not self.is_blacklist_xy(x, y):
+                  xl.append(x)
           #print(box_x, sig.shape[1])
           for x in range(box_x, img_vars_x1.shape[1]):
             if all(v >= (c-1e-5) for v,c in zip(img_vars_x1[y, x], self.cuts_x1)):
-              xr.append(x)
+              if self.check_tmva(img_vars_x1[y, x], 'x1'):
+                if not self.is_blacklist_x1(x, y):
+                  xr.append(x)
           if len(xr) == 0 or len(xl) == 0: continue
           print('y,xl,xr: {} {} {}'.format(y,xl,xr))
           xr = [r for r in xr[:-1] if (r+1) in xl] + [xr[-1]]
@@ -1046,7 +1179,7 @@ class Drop:
         #fg = cv2.inRange(hsv, (hue_pos-nb,0,0), (hue_pos+nb+0.001,255,255))
         #fg = cv2.inRange(hsv, (118-5,153-10,125), (118+5+0.001,153+10,255))
         #fg = cv2.inRange(hsv, (118-5,0,0), (118+5+0.001,255,255))
-        cols = {'u': 23.5, 'b': 119, 'o': 20, 'g': 120, 'y': 29}
+        cols = {'u': 23.5, 'b': 169, 'o': 20, 'g': 120, 'y': 29}
         cols_dif = {k: abs(hue_pos-v) for k,v in cols.items()}
         col = min(cols_dif, key=cols_dif.get)
         print('best col {} = {} [central {}]'.format(hue_pos, col, cols[col]))
@@ -1250,11 +1383,15 @@ if __name__ == '__main__':
   parser.add_argument('--mode', '-m', type=str, default='test', help='mode: test, newrun, append')
   parser.add_argument('-i', nargs='+', help='input files')
   parser.add_argument('-id', type=str, help='input directory')
+  parser.add_argument('-idr', type=str, help='input directory (reversed)')
   parser.add_argument('-idskip', type=int, default=0, help='skip #idskip images from directory')
-  parser.add_argument('-idr', action='store_true', help='input directory (reversed)')
   parser.add_argument('-i1', action='store_true', help='custom input')
+  parser.add_argument('-i0', action='store_true', help='custom input')
+  parser.add_argument('-imax', type=int, default=-1, help='maximum number of images to be processed')
   parser.add_argument('--roottree', action='store_true', help='store ROOT tree')
   parser.add_argument('--nostats', action='store_true', help='skip stats when training')
+  parser.add_argument('--tmva', action='store', nargs='*', help='apply TMVA cuts')
+  parser.add_argument('--filter_bkg', action='store_true', help='filter bkg when training')
   #parser.add_argument('--train', '-t', action='store_true', help='train box detection')
   args = parser.parse_args()
   #print(args.train)
@@ -1265,12 +1402,10 @@ if __name__ == '__main__':
   _do_time = 0
   atexit.register(print_all_time)
   np.set_printoptions(threshold=np.inf, linewidth=np.inf)
-  #dropper.cuts = [-7.162, -7.409, -10.484, -6.882, -38.839, -38.452, -36.323, -36.882, -11.502, -18.359, -13.91, -11.647, -89.891, -79.01, -65.544, -58.585, -7.265, -6.091, -8.859, -7.405, -21.942, -22.755, -26.394, -21.633, -16.059, -10.804, -13.729, -13.371, -58.738, -49.515, -58.053, -53.028, -39.5, -30.375, -22.625, -30.146, -52.563, -53.625, -49.25, -51.188, -50.349, -54.019, -57.279, -54.318, -74.014, -77.197, -84.811, -79.225, -37.401, -20.0, -26.0, -19.534, -70.801, -66.401, -47.8, -59.534, -34.954, -28.468, -43.919, -33.25, -71.429, -64.093, -71.429, -54.762, 38.007, -20.712]
-  #dropper.cuts_x1 = [-15.625, -16.563, -15.438, -15.125, -48.438, -51.0, -46.625, -47.355, -31.777, -29.111, -27.66, -28.188, -100.519, -133.196, -128.071, -78.724, -56.0, -53.6, -52.401, -50.734, -65.6, -63.201, -59.401, -62.734, -479.167, -487.5, -166.667, -212.281, -500.0, -500.0, -366.667, -227.486, -35.617, 34.208]
   #dropper.cuts = [-72.813, -73.568, -74.755, -73.712, -85.794, -87.0, -89.633, -87.205, -91.058, -118.927, -103.931, -103.809, -101.501, -125.345, -107.187, -107.66, -13.42, -22.162, -75.694, -37.699, -113.962, -109.807, -104.678, -108.777, -41.773, -69.185, -103.675, -90.315, -109.564, -114.301, -115.795, -104.946, -108.25, -89.875, -102.813, -92.292, -117.125, -115.25, -106.938, -111.084, -209.179, -119.254, -135.169, -123.072, -226.329, -149.433, -140.592, -145.366, -144.801, -151.601, -148.0, -148.134, -144.801, -151.601, -148.0, -148.134, -246.429, -249.343, -250.0, -247.992, -300.0, -249.343, -300.0, -247.992, 23.545, -36.656]
   #dropper.cuts_x1 = [-49.75, -48.375, -52.688, -48.792, -60.625, -68.875, -69.438, -64.584, -110.323, -140.765, -151.195, -138.017, -141.291, -149.254, -162.117, -148.596, -60.8, -56.8, -80.401, -53.934, -72.801, -69.0, -80.401, -69.934, -500.0, -500.0, -200.764, -238.145, -500.0, -500.0, -366.667, -238.145, -35.617, 16.437]
-  dropper.cuts = [-50]*4+[-50]*4+[-50]*4+[-50]*4+[-50]*4+[-50]*4+[-50]*4+[-50]*4+[-65]*4+[-65]*4+[-65]*4+[-65]*4+[-65]*4+[-65]*4+[-65]*4+[-65]*4+[30]+[-30]
-  dropper.cuts_x1 = [-65]*4+[-65]*4+[-65]*4+[-65]*4+[-60]*4+[-60]*4+[-60]*4+[-60]*4+[-30]+[25]
+  #dropper.cuts = [-50]*4+[-50]*4+[-50]*4+[-50]*4+[-50]*4+[-50]*4+[-50]*4+[-50]*4+[-65]*4+[-65]*4+[-65]*4+[-65]*4+[-65]*4+[-65]*4+[-65]*4+[-65]*4+[30]+[-30]
+  #dropper.cuts_x1 = [-65]*4+[-65]*4+[-65]*4+[-65]*4+[-60]*4+[-60]*4+[-60]*4+[-60]*4+[-30]+[25]
   dropper.flag_train = args.train
   dropper.flag_mycheck = args.check
   #dropper.store_sig = args.store_sig
@@ -1282,6 +1417,11 @@ if __name__ == '__main__':
   dropper.flag_roottree = args.roottree
   dropper.flag_nostats = args.nostats
   dropper.mode = args.mode
+  dropper.imax = args.imax
+  #print(args.tmva)
+  #a
+  dropper.tmva = args.tmva
+  dropper.filter_bkg = args.filter_bkg
   # checks
   if dropper.flag_mycheck and not dropper.flag_train:
     raise Exception("dropper.flag_mycheck = {} but dropper.flag_train = {}".format(dropper.flag_mycheck, dropper.flag_train))
@@ -1292,10 +1432,19 @@ if __name__ == '__main__':
     for img_name in args.i:
       ret = py_droprec(args.mode, *get_img(img_name), flag_store_sig=args.store_sig)
   elif args.id is not None:
-    for img_name in list(list_images(args.id, reversed=(args.idr is not None)))[args.idskip:]:
+    for img_name in list(list_images(args.id, reversed=0))[args.idskip:]:
       #print(img_name)
       timestamp = os.path.splitext(os.path.basename(img_name))[1]
       ret = py_droprec(args.mode, *get_img(img_name), flag_store_sig=args.store_sig)
+  elif args.idr is not None:
+    for img_name in list(list_images(args.idr, reversed=1))[args.idskip:]:
+      #print(img_name)
+      timestamp = os.path.splitext(os.path.basename(img_name))[1]
+      ret = py_droprec(args.mode, *get_img(img_name), flag_store_sig=args.store_sig)
+  elif args.i0:
+    #ret = py_droprec(args.mode, *get_img('../../502/screens_1/94456900671.png'), flag_store_sig=args.store_sig)
+    #ret = py_droprec(args.mode, *get_img('../../502/screens_1/95594893077.png'), flag_store_sig=args.store_sig)
+    ret = py_droprec(args.mode, *get_img('../../502/screens_1/97761959674.png'), flag_store_sig=args.store_sig)
   elif args.i1:
     # trained
     ret = py_droprec(args.mode, *get_img('../../502/screens_1/94456900671.png'), flag_store_sig=args.store_sig)
