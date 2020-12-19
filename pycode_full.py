@@ -103,7 +103,6 @@ class Drop:
       self.flag_skipwp = False
       self.flag_roottree = False
       self.flag_nostats = False
-      self.fast = False
       self.matched = 0
       self.notmatched = 0
       self.sig = []
@@ -325,7 +324,7 @@ class Drop:
 
     def reset_drop(self):
         self.current_drop = []
-
+    
     @timeit
     def process_drop(self, img, signal=[]):
       if self.imax >= 0 and dropper.imgs >= self.imax:
@@ -333,64 +332,19 @@ class Drop:
       dropper.imgs += 1
       #self._waypoint(self.img_orig, 'orig')
       #self._waypoint(img, 'input')
-      if self.fast:
-        maxgapx = 6
-        maxgapy = 1
-        minboxx = 10
-        minboxy = 10
-        minnpix = 5
+      if self.flag_selectedbox:
+        ys, ls, rs, mask = self._selected_box(img, signal)
+      elif self.flag_allboxes:
+        img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-        #cols = ['w', 'u', 'b', 'o', 'g', 'y']
-        cols = ['b']
-        #img_hsv_filt_cols = {col: self._filter_color(img_hsv, col) for col in cols}
-        ys, ls, rs = [], [], []
-        for col in cols:
-          img_hsv_filt = self._filter_color(img_hsv, col)
-          dil = cv2.dilate(img_hsv_filt, kernel = np.matrix(';'.join(['1 '*13]*5)), anchor=(-1,-1), borderType=cv2.BORDER_ISOLATED)
-          self._waypoint(dil, label = 'dil_'+col, wait=0)
-          retval, labels = cv2.connectedComponents(dil)
-          #print('retval = {}'.format(retval))
-          #print(labels[100:110,100:110])
-          num = labels.max()
-          for i in range(1, num+1):
-            pts =  np.where(labels == i)
-            if len(pts[0]) < 200:
-              labels[pts] = 0
-              continue
-            #print(pts)
-            y, y1 = np.min(pts[0]), np.max(pts[0])
-            x, x1 = np.min(pts[1]), np.max(pts[1])
-            print('component {} y,y1,x,x1 = {}, {}, {}, {}'.format(i,y,y1,x,x1))
-            ys.append(y+1)
-            ls.append(x+1)
-            rs.append(x1)
-          #self._waypoint(labels, label = 'labels_'+col, wait=1)
-          #thin = cv2.ximgproc.thinning(dil)
-          #self._waypoint(thin, label = 'thin_'+col, wait=1)
-          #er = cv2.erode(dil, kernel = np.matrix(';'.join(['1 '*30]*5)), anchor=(-1,-1), borderType=cv2.BORDER_ISOLATED)
-          #self._waypoint(er, label = 'er_'+col, wait=1)
-          '''for y in range(img_hsv_filt.shape[0]):
-            for x in range(img_hsv_filt.shape[1]):
-              if img_hsv_filt[y,x] == 0:
-                continue
-              print('img_hsv_filt col = {} x,y = {},{}'.format(col, x, y))
-              if sum(img_hsv_filt[yy,xx] for yy in range(y-minboxy,y+minboxy) for xx in range(x-minboxx,x+minboxx))/255 < minnpix:
-                continue'''
+        #img_gray = np.int16(img_gray)
+        img_gray = np.float32(img_gray)
+        img_float = np.float32(img)
+        ys, ls, rs = self._boxes(img_float, img_hsv, signal=signal)
         mask = None
-      else:
-        if self.flag_selectedbox:
-          ys, ls, rs, mask = self._selected_box(img, signal)
-        elif self.flag_allboxes:
-          img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-          img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-          #img_gray = np.int16(img_gray)
-          img_gray = np.float32(img_gray)
-          img_float = np.float32(img)
-          ys, ls, rs = self._boxes(img_float, img_hsv, signal=signal)
-          mask = None
-        ys = [y+1 for y in ys]
-        ls = [y+1 for y in ls]
-        rs = [x for x in rs]
+      ys = [y+1 for y in ys]
+      ls = [y+1 for y in ls]
+      rs = [x for x in rs]
       print(ys, ls, rs, sep='\n')
       #ys = [249, 249, 249, 264, 264, 279, 294, 309, 324, 339, 357, 376]
       #ls = [328, 421, 578, 268, 409, 307, 312, 289, 326, 244, 386, 296]
@@ -566,9 +520,9 @@ class Drop:
         #filt = cv2.inRange(hsv, (27,143,val_min), (31,163,val_max))
         filt = cv2.inRange(hsv, (30,154,207), (30,154,207))
       filt[np.where(filt != 0)] = 255
-      #filt = np.float32(filt)
-      #print(hsv[223:225,320])
-      print('col {}: npixels = {}'.format(col, cv2.countNonZero(filt)))
+      filt = np.float32(filt)
+      print(hsv[223:225,320])
+      print('col {}: {}'.format(col, cv2.countNonZero(filt)))
       self._waypoint(filt, label='col_{}'.format(col), wait=1)
       return filt
 
@@ -684,7 +638,7 @@ class Drop:
       #aaa
       cols = ['w', 'u', 'b', 'o', 'g', 'y']
       #cols = ['w']
-      img_hsv_filt = {col: np.float32(self._filter_color(img_hsv, col)) for col in cols}
+      img_hsv_filt = {col: self._filter_color(img_hsv, col) for col in cols}
       #hsv_r = self._max_img_from_list([cv2.filter2D(img_hsv_filt[col], -1, np.matrix(';'.join(['1 '*(mar_r_box-1)]*(box_y-mar_t-mar_b-1))), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(2*(mar_r_box-1)*(box_y-mar_b-mar_t-1)) for col in cols])
       #translation_matrix = np.float32([ [1,0,mar_r+mar_r_box], [0,1,0] ])
       hsv_l = self._max_img_from_list([cv2.filter2D(img_hsv_filt[col], -1, np.matrix(';'.join(['1 '*(mar_l_box)]*(box_y-mar_t-mar_b))), anchor=(0,0), borderType=cv2.BORDER_ISOLATED)/(1.*(mar_l_box)*(box_y-mar_b-mar_t)) for col in cols])
@@ -1305,10 +1259,9 @@ def py_droprec(mode, img, timestamp=0, signal=[], img_name=None, y0=None, y1=Non
   if mode == 'test':
     pass
   elif mode == 'newrun' or mode == 'append':
-    dropper.flag_allboxes = 1
-    dropper.flag_selectedbox = 0
+    dropper.flag_allboxes = 0
+    dropper.flag_selectedbox = 1
     dropper.flag_skipwp = 1
-    dropper.fast = 1
   else:
     assert 0
   print('SZ droprec timestamp = {}, crop = [{}:{}, {}:{}], signal = {}'.format(timestamp, y0, y1, x0, x1, signal))
@@ -1446,7 +1399,6 @@ if __name__ == '__main__':
   parser.add_argument('--nostats', action='store_true', help='skip stats when training')
   parser.add_argument('--tmva', action='store', nargs='*', help='apply TMVA cuts')
   parser.add_argument('--filter_bkg', action='store_true', help='filter bkg when training')
-  parser.add_argument('--fast', action='store_true', help='fast')
   #parser.add_argument('--train', '-t', action='store_true', help='train box detection')
   args = parser.parse_args()
   #print(args.train)
@@ -1473,7 +1425,6 @@ if __name__ == '__main__':
   dropper.flag_nostats = args.nostats
   dropper.mode = args.mode
   dropper.imax = args.imax
-  dropper.fast = args.fast
   #print(args.tmva)
   #a
   dropper.tmva = args.tmva
